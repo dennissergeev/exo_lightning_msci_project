@@ -5,13 +5,35 @@ Only changes from original:
 1. Made n_bins a parameter (default 31)
 2. Created plot_comparison() function for organized plotting
 3. Slightly cleaner main() function
+4. Moved physical constants into a separate dataclass
 """
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
+
+
+@dataclass
+class PhysicalConstants:
+    g: float = 9.81
+    R: float = 8.31446
+    mu: float = 0.02896
+    epsilon: float = 0.6222
+    Cp: float = 14500.0
+    L: float = 2257000.0
+    eps0: float = 8.854e-12
+    e_charge: float = 1.602e-19
+    rho_water: float = 1000.0
+    rhoro: float = 2.5
+    Cdrag: float = 0.5
+    Eflash: float = 1.5e9
+    mfptime: float = 4.0e-11
+
+
+CONST = PhysicalConstants()
 
 
 def saturation_vapor_pressure(temp: float) -> float:
@@ -47,14 +69,12 @@ def dT_dP_dry(
     P: float,
     T: float,
     f: float,
-    Cp: float = 14500.0,
-    g: float = 9.81,
-    R: float = 8.31446,
-    mu: float = 0.02896,
-    epsilon: float = 0.6222,
+    Cp: float = None,
+    const: PhysicalConstants = CONST,
 ) -> float:
     """Dry adiabatic temperature gradient."""
-    return R * T * ((1 + f / epsilon) / (1 + f)) / (mu * P * Cp)
+    Cp_use = Cp if Cp is not None else const.Cp
+    return const.R * T * ((1 + f / const.epsilon) / (1 + f)) / (const.mu * P * Cp_use)
 
 
 def dT_dP_moist(
@@ -65,31 +85,30 @@ def dT_dP_moist(
     frise: float,
     ffall: float,
     satvappre: float,
-    Cp: float = 14500.0,
+    Cp: float = None,
     radius: float = 5000.0,
-    g: float = 9.81,
-    R: float = 8.31446,
-    mu: float = 0.02896,
-    epsilon: float = 0.6222,
-    L: float = 2257000.0,
+    const: PhysicalConstants = CONST,
 ) -> float:
     """Moist adiabatic temperature gradient."""
-    Gamma = dT_dP_dry(P, Trise, frise, Cp, g, R, mu, epsilon)
-    fS = epsilon * satvappre / P
+    Cp_use = Cp if Cp is not None else const.Cp
+    Gamma = dT_dP_dry(P, Trise, frise, Cp=Cp_use, const=const)
+    fS = const.epsilon * satvappre / P
 
     if fS <= frise:
-        Tv = Trise * ((1 + frise / epsilon) / (1 + frise))
-        phi = -0.2 * R * Trise / (radius * mu * P * g)
+        Tv = Trise * ((1 + frise / const.epsilon) / (1 + frise))
+        phi = -0.2 * const.R * Trise / (radius * const.mu * P * const.g)
         numer = (
             1
-            + L * fS * mu / (R * Tv)
+            + const.L * fS * const.mu / (const.R * Tv)
             - ((Trise - Tfall) * phi / Gamma)
-            - L * (fS - ffall) * phi / (Gamma * Cp)
+            - const.L * (fS - ffall) * phi / (Gamma * Cp_use)
         )
-        denom = 1 + (L * L * fS * epsilon * mu) / (Cp * R * Trise * Trise)
+        denom = 1 + (const.L * const.L * fS * const.epsilon * const.mu) / (
+            Cp_use * const.R * Trise * Trise
+        )
         return Gamma * numer / denom
     else:
-        phi = -0.2 * R * Trise / (radius * mu * P * g)
+        phi = -0.2 * const.R * Trise / (radius * const.mu * P * const.g)
         return Gamma - ((Trise - Tfall) * phi)
 
 
@@ -102,20 +121,17 @@ def dw_dP(
     ffall: float,
     w: float,
     radius: float = 5000.0,
-    g: float = 9.81,
-    R: float = 8.31446,
-    mu: float = 0.02896,
-    epsilon: float = 0.6222,
+    const: PhysicalConstants = CONST,
 ) -> float:
     """Vertical velocity gradient."""
-    phi = -0.2 * R * Trise / (radius * mu * P * g)
+    phi = -0.2 * const.R * Trise / (radius * const.mu * P * const.g)
     dwdPn = (
-        -R
+        -const.R
         * (
-            Trise * (1 - lcondensate) * ((1 + frise / epsilon) / (1 + frise))
-            - Tfall * ((1 + ffall / epsilon) / (1 + ffall))
+            Trise * (1 - lcondensate) * ((1 + frise / const.epsilon) / (1 + frise))
+            - Tfall * ((1 + ffall / const.epsilon) / (1 + ffall))
         )
-        / (P * mu * w)
+        / (P * const.mu * w)
         - w * phi
     )
     return dwdPn
@@ -410,13 +426,17 @@ def dEdt(
     velocities: np.ndarray,
     charges: np.ndarray,
     Efield: float,
-    mfptime: float = 4.0 * (10**-11),
+    mfptime: float = None,
     ioncharges: List[float] = [],
     ionnumbers: List[float] = [],
     ionvelocities: List[float] = [],
     ionmasses: List[float] = [],
+    const: PhysicalConstants = CONST,
 ) -> float:
     """Calculate electric field rate - COPIED FROM ORIGINAL."""
+    if mfptime is None:
+        mfptime = const.mfptime
+
     r0s = np.zeros(len(n0s))
     ns = np.zeros(len(n0s))
 
@@ -439,10 +459,10 @@ def dEdt(
         Jcg = -ns[g] * velocities[g] * charges[g]
         Jc = Jc + Jcg
     for k in range(len(ionnumbers)):
-        Jdk = (Efield * ionnumbers[k] * mfptime * (1.602 * 10**-19) ** 2) / ionmasses[k]
+        Jdk = (Efield * ionnumbers[k] * mfptime * (const.e_charge) ** 2) / ionmasses[k]
         Jd = Jd + Jdk
 
-    return -(Jc + Jd) / (8.854 * (10**-12))
+    return -(Jc + Jd) / (const.eps0)
 
 
 def kayer(
@@ -453,6 +473,7 @@ def kayer(
     waterS: float = 0.8,
     iceS: float = 0.0,
     n_bins: int = 31,
+    const: PhysicalConstants = CONST,
 ) -> Tuple[
     List[float],
     List[float],
@@ -466,7 +487,8 @@ def kayer(
     List[float],
 ]:
     """
-    Run simulation - COPIED FROM ORIGINAL with n_bins parameter added.
+    Run simulation - COPIED FROM ORIGINAL with n_bins parameter added and physical
+    constants centralized in PhysicalConstants.
 
     Parameters:
     -----------
@@ -477,20 +499,20 @@ def kayer(
     waterS : Water collision efficiency
     iceS : Ice collision efficiency
     n_bins : Number of particle size bins (NEW PARAMETER)
+    const : Physical constants dataclass
     """
     anlT = 10.0 + 3.0 * (Tuu - 295.0) / 10.0
     Trin = Tuu
     Tfin = Tuu + anlT
     fprea = (
         humid
-        * 0.6222
+        * const.epsilon
         * saturation_vapor_pressure(Trin)
         / (100000.0 - saturation_vapor_pressure(Trin))
     )
     frise = fprea / (1.0 + fprea)
     Rplume = Ruu
-    Cdrag = 0.5
-    Eflash = 1.5 * (10**9)
+    Eflash = const.Eflash
     supercoolK = suu
 
     Pmax = 1.0
@@ -512,10 +534,10 @@ def kayer(
     Radii: List[float] = []
 
     binbounds = np.geomspace(0.00001, 0.46340950011842, n_bins + 1)
-    rhoin = 1000.0
-    rhoro = 2.5
+    rhoin = const.rho_water
+    rhoro = const.rhoro
     rhrro = rhoro ** (1.0 / 3.0)
-    vrQQ = np.sqrt((8.0 / (3.0 * Cdrag)) * rhoin * 9.81 * 8.31446 / 0.02896)
+    vrQQ = np.sqrt((8.0 / (3.0 * const.Cdrag)) * rhoin * const.g * const.R / const.mu)
     vrel = np.ones([n_bins, n_bins]) * 10.0
     delt = 0.01
     upbsin = np.zeros(n_bins)
@@ -546,10 +568,10 @@ def kayer(
         Radii.append(Rplume)
 
         Pnew = P - Pstep
-        fJrise = frise / (0.6222 + frise * 0.3778)
-        muecurr = (1.0 - fJrise * 0.3778) * 0.02896
-        Cpcurr = 3.5 * 8.31446 / muecurr
-        Tfallnew = Tfall - Pstep * dT_dP_dry(P, Tfall, 0.0, Cpcurr)
+        fJrise = frise / (const.epsilon + frise * (1.0 - const.epsilon))
+        muecurr = (1.0 - fJrise * (1.0 - const.epsilon)) * const.mu
+        Cpcurr = 3.5 * const.R / muecurr
+        Tfallnew = Tfall - Pstep * dT_dP_dry(P, Tfall, 0.0, Cp=Cpcurr, const=const)
 
         if (P < 22632) or (Tfallnew < 216.6):
             fadjTf = Pstep / 100.0
@@ -563,12 +585,21 @@ def kayer(
             frise / (1.0 - frise),
             0.0,
             saturation_vapor_pressure(Trise),
-            Cpcurr,
+            Cp=Cpcurr,
             radius=Rplume,
+            const=const,
         )
 
         wnew = w - Pstep * dw_dP(
-            P, Trise, Tfall, condensate, frise / (1.0 - frise), 0.0, w, radius=Rplume
+            P,
+            Trise,
+            Tfall,
+            condensate,
+            frise / (1.0 - frise),
+            0.0,
+            w,
+            radius=Rplume,
+            const=const,
         )
 
         frsnew = 0.6222 * (
@@ -578,7 +609,7 @@ def kayer(
         fsatnew = frsnew / (1.0 + frsnew)
 
         if w > 0.001:
-            phinew = -0.2 * 8.31446 * Trisenew / (Rplume * 0.02896 * Pnew * 9.81)
+            phinew = -0.2 * const.R * Trisenew / (Rplume * const.mu * Pnew * const.g)
             fracdelm = -phinew * Pstep
             frise = frise * (1.0 - fracdelm)
             condensate = condensate * (1.0 - fracdelm)
@@ -591,10 +622,10 @@ def kayer(
             if w > 0.001:
                 frdrho = (-Pstep / Pnew - (Trisenew - Trise) / Trisenew) + (
                     fcondens
-                    * 0.6222
-                    * 0.3778
-                    * 0.02896
-                    / ((0.6222 + 0.3778 * frisenew) ** 2)
+                    * const.epsilon
+                    * (1.0 - const.epsilon)
+                    * const.mu
+                    / ((const.epsilon + (1.0 - const.epsilon) * frisenew) ** 2)
                 ) / muecurr
                 frdRpl = 0.5 * fracdelm - 0.5 * frdrho
                 Rplume = min(Rplume * (1.0 + frdRpl), Ruu * np.sqrt(2.0))
@@ -619,7 +650,7 @@ def kayer(
                 wjprea = wjQQ * np.sqrt(binbounds[min(ie, j)])
                 vrel[ie, j] = abs(wiprea - wjprea)
 
-        verticalrise = Pstep * Trisenew * 8.31446 / (9.81 * Pnew * 0.02896)
+        verticalrise = Pstep * Trisenew * const.R / (const.g * Pnew * const.mu)
         timefly = verticalrise / wnew
         stepsfly = int(np.ceil(timefly / delt))
 
@@ -638,9 +669,9 @@ def kayer(
                 lz = condensate_new_init
                 n0sin[0] = (
                     (lz / (1.0 - lz))
-                    * (Pnew * 0.02896)
+                    * (Pnew * const.mu)
                     / (
-                        8.31446
+                        const.R
                         * Trisenew
                         * 1000.0
                         * ((4.0 / 3.0) * np.pi * 0.00001189207**3)
@@ -664,9 +695,9 @@ def kayer(
             else:
                 nar = (
                     (fcondens / (1.0 - fcondens))
-                    * (Pnew * 0.02896)
+                    * (Pnew * const.mu)
                     / (
-                        8.31446
+                        const.R
                         * Trisenew
                         * 1000.0
                         * ((4.0 / 3.0) * np.pi * 0.00001189207**3)
@@ -925,9 +956,11 @@ def kayer(
         kara = dQdt(
             n0snew, slopesnew, binbounds, upboss, velpart, Qcoefff=Qcoeff, radju=radju
         )
-        qara = dEdt(n0snew, slopesnew, binbounds, upboss, velpart, kara, 0.0)
+        qara = dEdt(
+            n0snew, slopesnew, binbounds, upboss, velpart, kara, 0.0, const=const
+        )
 
-        J1ss[ib] = (8.854 * (10**-12)) * qara
+        J1ss[ib] = (const.eps0) * qara
 
         Emax = 3.0 * P
         if qara != 0:
@@ -940,7 +973,7 @@ def kayer(
             T = Tempsrise[i]
             tc = tcrits[io]
             PPV = 5.0 * P * J1ss[io] * tc / 2.0
-            verticalrise = 100.0 * T * 8.31446 / (9.81 * P * 0.02896)
+            verticalrise = 100.0 * T * const.R / (const.g * P * const.mu)
             Rflash[io] = abs((10**6) * verticalrise * PPV / Eflash)
 
     Plim = np.zeros(989)
@@ -1043,6 +1076,7 @@ def main():
     outdir.mkdir(exist_ok=True, parents=True)
 
     n_bins = 31  # Number of particle size bins
+    const = PhysicalConstants()  # centralized constants instance
 
     for effICE in [0.0]:
         for effWAT in [0.5]:
@@ -1063,6 +1097,7 @@ def main():
                     waterS=effWAT,
                     iceS=effICE,
                     n_bins=n_bins,
+                    const=const,
                 )
 
                 print("\nSimulating 310K...")
@@ -1074,6 +1109,7 @@ def main():
                     waterS=effWAT,
                     iceS=effICE,
                     n_bins=n_bins,
+                    const=const,
                 )
 
                 print("\nGenerating plots...")
