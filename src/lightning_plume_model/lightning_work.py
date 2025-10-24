@@ -8,12 +8,13 @@ Only changes from original:
 """
 
 from pathlib import Path
+from typing import List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 
-def saturation_vapor_pressure(temp):
+def saturation_vapor_pressure(temp: float) -> float:
     """Saturation vapor pressure of water (Lowe 1977)."""
     a0 = 6984.505294
     a1 = -188.9039310
@@ -28,7 +29,7 @@ def saturation_vapor_pressure(temp):
     return max(mb * 100.0, 0.0)
 
 
-def T_stratosphere(pressure):
+def T_stratosphere(pressure: float) -> float:
     """International Standard Atmosphere stratospheric temperature."""
     if pressure > 5474.9:
         return 216.6
@@ -42,27 +43,36 @@ def T_stratosphere(pressure):
         return 270.6 - 56.0 * np.log(pressure / 66.939) / np.log(3.9564 / 66.939)
 
 
-def dT_dP_dry(P, T, f, Cp=14500.0, g=9.81, R=8.31446, mu=0.02896, epsilon=0.6222):
+def dT_dP_dry(
+    P: float,
+    T: float,
+    f: float,
+    Cp: float = 14500.0,
+    g: float = 9.81,
+    R: float = 8.31446,
+    mu: float = 0.02896,
+    epsilon: float = 0.6222,
+) -> float:
     """Dry adiabatic temperature gradient."""
     return R * T * ((1 + f / epsilon) / (1 + f)) / (mu * P * Cp)
 
 
 def dT_dP_moist(
-    P,
-    Trise,
-    Tfall,
-    lcondensate,
-    frise,
-    ffall,
-    satvappre,
-    Cp=14500.0,
-    radius=5000.0,
-    g=9.81,
-    R=8.31446,
-    mu=0.02896,
-    epsilon=0.6222,
-    L=2257000.0,
-):
+    P: float,
+    Trise: float,
+    Tfall: float,
+    lcondensate: float,
+    frise: float,
+    ffall: float,
+    satvappre: float,
+    Cp: float = 14500.0,
+    radius: float = 5000.0,
+    g: float = 9.81,
+    R: float = 8.31446,
+    mu: float = 0.02896,
+    epsilon: float = 0.6222,
+    L: float = 2257000.0,
+) -> float:
     """Moist adiabatic temperature gradient."""
     Gamma = dT_dP_dry(P, Trise, frise, Cp, g, R, mu, epsilon)
     fS = epsilon * satvappre / P
@@ -84,19 +94,19 @@ def dT_dP_moist(
 
 
 def dw_dP(
-    P,
-    Trise,
-    Tfall,
-    lcondensate,
-    frise,
-    ffall,
-    w,
-    radius=5000.0,
-    g=9.81,
-    R=8.31446,
-    mu=0.02896,
-    epsilon=0.6222,
-):
+    P: float,
+    Trise: float,
+    Tfall: float,
+    lcondensate: float,
+    frise: float,
+    ffall: float,
+    w: float,
+    radius: float = 5000.0,
+    g: float = 9.81,
+    R: float = 8.31446,
+    mu: float = 0.02896,
+    epsilon: float = 0.6222,
+) -> float:
     """Vertical velocity gradient."""
     phi = -0.2 * R * Trise / (radius * mu * P * g)
     dwdPn = (
@@ -111,7 +121,17 @@ def dw_dP(
     return dwdPn
 
 
-def stepgrow(n0s, slopes, binbounds, upbooms, rho, Eij, vrel, delt, showdetails=0):
+def stepgrow(
+    n0s: np.ndarray,
+    slopes: np.ndarray,
+    binbounds: np.ndarray,
+    upbooms: np.ndarray,
+    rho: float,
+    Eij: np.ndarray,
+    vrel: np.ndarray,
+    delt: float,
+    showdetails: int = 0,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Particle growth through collisions - COPIED EXACTLY FROM ORIGINAL."""
     r0s = np.zeros(len(n0s))
     Ns = np.zeros(len(n0s))
@@ -325,17 +345,17 @@ def stepgrow(n0s, slopes, binbounds, upbooms, rho, Eij, vrel, delt, showdetails=
 
 
 def dQdt(
-    n0s,
-    slopes,
-    binbounds,
-    upperbound,
-    velocities,
-    Qcoefff=1.0,
-    ioncharges=[],
-    ionnumbers=[],
-    ionvelocities=[],
-    radju=1,
-):
+    n0s: np.ndarray,
+    slopes: np.ndarray,
+    binbounds: np.ndarray,
+    upperbound: np.ndarray,
+    velocities: np.ndarray,
+    Qcoefff: float = 1.0,
+    ioncharges: List[float] = [],
+    ionnumbers: List[float] = [],
+    ionvelocities: List[float] = [],
+    radju: float = 1,
+) -> np.ndarray:
     """Calculate charging rate - COPIED FROM ORIGINAL."""
     r0s = np.zeros(len(n0s))
     ns = np.zeros(len(n0s))
@@ -383,19 +403,19 @@ def dQdt(
 
 
 def dEdt(
-    n0s,
-    slopes,
-    binbounds,
-    upperbound,
-    velocities,
-    charges,
-    Efield,
-    mfptime=4.0 * (10**-11),
-    ioncharges=[],
-    ionnumbers=[],
-    ionvelocities=[],
-    ionmasses=[],
-):
+    n0s: np.ndarray,
+    slopes: np.ndarray,
+    binbounds: np.ndarray,
+    upperbound: np.ndarray,
+    velocities: np.ndarray,
+    charges: np.ndarray,
+    Efield: float,
+    mfptime: float = 4.0 * (10**-11),
+    ioncharges: List[float] = [],
+    ionnumbers: List[float] = [],
+    ionvelocities: List[float] = [],
+    ionmasses: List[float] = [],
+) -> float:
     """Calculate electric field rate - COPIED FROM ORIGINAL."""
     r0s = np.zeros(len(n0s))
     ns = np.zeros(len(n0s))
@@ -425,7 +445,26 @@ def dEdt(
     return -(Jc + Jd) / (8.854 * (10**-12))
 
 
-def kayer(Tuu, humid, Ruu, suu, waterS=0.8, iceS=0.0, n_bins=31):
+def kayer(
+    Tuu: float,
+    humid: float,
+    Ruu: float,
+    suu: float,
+    waterS: float = 0.8,
+    iceS: float = 0.0,
+    n_bins: int = 31,
+) -> Tuple[
+    List[float],
+    List[float],
+    List[float],
+    np.ndarray,
+    np.ndarray,
+    List[float],
+    List[float],
+    List[float],
+    List[float],
+    List[float],
+]:
     """
     Run simulation - COPIED FROM ORIGINAL with n_bins parameter added.
 
@@ -463,14 +502,14 @@ def kayer(Tuu, humid, Ruu, suu, waterS=0.8, iceS=0.0, n_bins=31):
     Tfall = Tfin
     stepmax = int(P / Pstep) - 10
 
-    Pressures = []
-    Tempsrise = []
-    Tempsfall = []
-    Tempsdiff = []
-    Velocities = []
-    fsrise = []
-    lsrise = []
-    Radii = []
+    Pressures: List[float] = []
+    Tempsrise: List[float] = []
+    Tempsfall: List[float] = []
+    Tempsdiff: List[float] = []
+    Velocities: List[float] = []
+    fsrise: List[float] = []
+    lsrise: List[float] = []
+    Radii: List[float] = []
 
     binbounds = np.geomspace(0.00001, 0.46340950011842, n_bins + 1)
     rhoin = 1000.0
@@ -485,11 +524,11 @@ def kayer(Tuu, humid, Ruu, suu, waterS=0.8, iceS=0.0, n_bins=31):
     upbsin[0] = binbounds[1]
 
     togglecondens = 0
-    n0slist = []
-    slopeslist = []
-    Upbos = []
-    NPrecipitations = []
-    MPrecipitations = []
+    n0slist: List[np.ndarray] = []
+    slopeslist: List[np.ndarray] = []
+    Upbos: List[np.ndarray] = []
+    NPrecipitations: List[np.ndarray] = []
+    MPrecipitations: List[np.ndarray] = []
     n0s = np.zeros(n_bins)
     slopes = np.zeros(n_bins)
     upbs = upbsin + np.zeros(n_bins)
