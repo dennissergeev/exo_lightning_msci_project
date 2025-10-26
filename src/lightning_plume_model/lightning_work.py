@@ -18,11 +18,13 @@ import numpy as np
 
 @dataclass
 class PhysicalConstants:
+    """Physical constants used in lightning plume model calculations."""
+
     g: float = 9.81
     R: float = 8.31446
     mu: float = 0.02896
     epsilon: float = 0.6222
-    Cp: float = 14500.0
+    c_p: float = 14500.0
     L: float = 2257000.0
     eps0: float = 8.854e-12
     e_charge: float = 1.602e-19
@@ -31,8 +33,10 @@ class PhysicalConstants:
     Cdrag: float = 0.5
     Eflash: float = 1.5e9
     mfptime: float = 4.0e-11
+    temp_freeze: float = 273.15
 
 
+# Initialize physical constants
 CONST = PhysicalConstants()
 
 
@@ -51,7 +55,7 @@ def saturation_vapor_pressure(temp: float) -> float:
     return max(mb * 100.0, 0.0)
 
 
-def T_stratosphere(pressure: float) -> float:
+def temp_strat(pressure: float) -> float:
     """International Standard Atmosphere stratospheric temperature."""
     if pressure > 5474.9:
         return 216.6
@@ -65,19 +69,93 @@ def T_stratosphere(pressure: float) -> float:
         return 270.6 - 56.0 * np.log(pressure / 66.939) / np.log(3.9564 / 66.939)
 
 
-def dT_dP_dry(
+def dry_adiabat(
     P: float,
     T: float,
     f: float,
-    Cp: float = None,
+    c_p: float = CONST.c_p,
     const: PhysicalConstants = CONST,
 ) -> float:
-    """Dry adiabatic temperature gradient."""
-    Cp_use = Cp if Cp is not None else const.Cp
-    return const.R * T * ((1 + f / const.epsilon) / (1 + f)) / (const.mu * P * Cp_use)
+    r"""
+    Calculate the dry adiabatic temperature gradient.
+
+    This function computes the dry adiabatic temperature gradient, which describes
+    how temperature changes with pressure in a dry air parcel under adiabatic conditions.
+
+    The formula used is:
+    .. math::
+        \frac{dT}{dP} = \frac{RT}{\mu P} \cdot \frac{1 + f/\epsilon}{1 + f} \cdot \frac{1}{c_p}
+
+    where:
+    - :math:`R` is the universal gas constant [J/mol/K]
+    - :math:`T` is temperature [K]
+    - :math:`\mu` is the molar mass of dry air [kg/mol]
+    - :math:`P` is pressure [Pa]
+    - :math:`f` is the mixing ratio [kg/kg]
+    - :math:`\epsilon` is the ratio of molecular weights of water vapor to dry air [dimensionless]
+    - :math:`c_p` is the specific heat capacity at constant pressure [J/kg/K]
+
+    Parameters
+    ----------
+    P : float
+        Pressure [Pa]
+    T : float
+        Temperature [K]
+    f : float
+        Mixing ratio [kg/kg]
+    c_p : float, optional
+        Specific heat capacity at constant pressure [J/kg/K]
+    const : PhysicalConstants, optional
+        Physical constants object
+
+    Returns
+    -------
+    float
+        Temperature gradient dT/dP [K/Pa]
+    """
+    return const.R * T * ((1 + f / const.epsilon) / (1 + f)) / (const.mu * P * c_p)
 
 
-def dT_dP_moist(
+def entrainment(
+    T: float,
+    P: float,
+    plume_radius: float = 5000.0,
+    const: PhysicalConstants = CONST,
+) -> float:
+    r"""
+    Calculate the entrainment parameter phi.
+
+    The entrainment parameter is given by:
+    ..math::
+        phi = -0.2 * R * T / (r * mu * P * g)
+
+    where:
+    - :math:`R` is the universal gas constant [J/mol/K]
+    - :math:`T` is temperature [K]
+    - :math:`\mu` is the molar mass of dry air [kg/mol]
+    - :math:`P` is pressure [Pa]
+    - :math:`g` is gravity [m/s^2]
+
+    Parameters
+    ----------
+    T : float
+        Temperature [K]
+    P : float
+        Pressure [Pa]
+    plume_radius : float, optional
+        Radius of updraft [m], defaults to 5000.0
+    const : PhysicalConstants, optional
+        Physical constants object
+
+    Returns
+    -------
+    float
+        Entrainment parameter (phi) [1/Pa]
+    """
+    return -0.2 * const.R * T / (plume_radius * const.mu * P * const.g)
+
+
+def moist_adiabat(
     P: float,
     Trise: float,
     Tfall: float,
@@ -85,34 +163,79 @@ def dT_dP_moist(
     frise: float,
     ffall: float,
     satvappre: float,
-    Cp: float = None,
-    radius: float = 5000.0,
+    entrain_param: float,
+    c_p: float = CONST.c_p,
     const: PhysicalConstants = CONST,
 ) -> float:
-    """Moist adiabatic temperature gradient."""
-    Cp_use = Cp if Cp is not None else const.Cp
-    Gamma = dT_dP_dry(P, Trise, frise, Cp=Cp_use, const=const)
+    r"""
+    Calculate the moist adiabatic temperature gradient.
+
+    This function computes the moist adiabatic lapse rate taking into account condensation
+    and entrainment effects. The calculation differs depending on whether the parcel is
+    saturated (fS <= frise) or unsaturated.
+
+    For saturated conditions:
+    .. math::
+        \Gamma_{m} = \Gamma_d \frac{1 + \frac{L f_s \mu}{RT_v}
+            - \frac{(T_r - T_f)\phi}{\Gamma_d} - \frac{L(f_s - f_f)\phi}{\Gamma_d c_p}}{1 + \frac{L^2 f_s \epsilon \mu}{c_p RT^2}}
+
+    For unsaturated conditions:
+    .. math::
+        \Gamma_{m} = \Gamma_d - (T_r - T_f)\phi
+
+    where:
+    - :math:`\Gamma_d` is the dry adiabatic lapse rate
+    - :math:`\phi` is the entrainment parameter
+    - :math:`f_s` is the saturation mixing ratio
+
+    Parameters
+    ----------
+    P : float
+        Pressure [Pa]
+    Trise : float
+        Temperature of rising air [K]
+    Tfall : float
+        Temperature of falling air [K]
+    lcondensate : float
+        Latent heat of condensation [J/kg]
+    frise : float
+        Mixing ratio of rising air [kg/kg]
+    ffall : float
+        Mixing ratio of falling air [kg/kg]
+    satvappre : float
+        Saturation vapor pressure [Pa]
+    entrain_param : float
+        Entrainment parameter [1/Pa]
+    c_p : float, optional
+        Specific heat capacity at constant pressure [J/kg/K]
+    const : PhysicalConstants, optional
+        Physical constants object
+
+    Returns
+    -------
+    float
+        Moist adiabatic temperature gradient [K/m]
+    """
+    Gamma = dry_adiabat(P, Trise, frise, c_p=c_p, const=const)
     fS = const.epsilon * satvappre / P
 
     if fS <= frise:
         Tv = Trise * ((1 + frise / const.epsilon) / (1 + frise))
-        phi = -0.2 * const.R * Trise / (radius * const.mu * P * const.g)
         numer = (
             1
             + const.L * fS * const.mu / (const.R * Tv)
-            - ((Trise - Tfall) * phi / Gamma)
-            - const.L * (fS - ffall) * phi / (Gamma * Cp_use)
+            - ((Trise - Tfall) * entrain_param / Gamma)
+            - const.L * (fS - ffall) * entrain_param / (Gamma * c_p)
         )
         denom = 1 + (const.L * const.L * fS * const.epsilon * const.mu) / (
-            Cp_use * const.R * Trise * Trise
+            c_p * const.R * Trise * Trise
         )
         return Gamma * numer / denom
     else:
-        phi = -0.2 * const.R * Trise / (radius * const.mu * P * const.g)
-        return Gamma - ((Trise - Tfall) * phi)
+        return Gamma - ((Trise - Tfall) * entrain_param)
 
 
-def dw_dP(
+def upward_wind_gradient(
     P: float,
     Trise: float,
     Tfall: float,
@@ -120,11 +243,51 @@ def dw_dP(
     frise: float,
     ffall: float,
     w: float,
-    radius: float = 5000.0,
+    entrain_param: float,
     const: PhysicalConstants = CONST,
 ) -> float:
-    """Vertical velocity gradient."""
-    phi = -0.2 * const.R * Trise / (radius * const.mu * P * const.g)
+    r"""
+    Calculate the vertical velocity gradient in a convective plume.
+
+    This function computes the vertical velocity gradient based on thermodynamic
+    properties and physical constants. The gradient is derived from the equation:
+
+    .. math::
+        \frac{dw}{dP} = -\frac{R}{P\mu w}\left[T_{rise}(1-l)\frac{1+f_{rise}/\epsilon}{1+f_{rise}}
+        - T_{fall}\frac{1+f_{fall}/\epsilon}{1+f_{fall}}\right] - w\phi
+
+    Parameters
+    ----------
+    P : float
+        Pressure [Pa]
+    Trise : float
+        Temperature of rising air [K]
+    Tfall : float
+        Temperature of falling air [K]
+    lcondensate : float
+        Liquid water content ratio [dimensionless]
+    frise : float
+        Water vapor mixing ratio in rising air [kg/kg]
+    ffall : float
+        Water vapor mixing ratio in falling air [kg/kg]
+    w : float
+        Vertical velocity [m/s]
+    entrain_param : float,
+        Entrainment parameter [1/Pa]
+    const : PhysicalConstants, optional
+        Object containing physical constants, defaults to CONST
+
+    Returns
+    -------
+    float
+        Vertical velocity gradient [m/s/Pa]
+
+    Notes
+    -----
+    The equation represents the change in vertical velocity with respect to pressure,
+    accounting for temperature differences between rising and falling air, water vapor
+    content, and entrainment effects.
+    """
     dwdPn = (
         -const.R
         * (
@@ -132,7 +295,7 @@ def dw_dP(
             - Tfall * ((1 + ffall / const.epsilon) / (1 + ffall))
         )
         / (P * const.mu * w)
-        - w * phi
+        - w * entrain_param
     )
     return dwdPn
 
@@ -571,13 +734,15 @@ def kayer(
         fJrise = frise / (const.epsilon + frise * (1.0 - const.epsilon))
         muecurr = (1.0 - fJrise * (1.0 - const.epsilon)) * const.mu
         Cpcurr = 3.5 * const.R / muecurr
-        Tfallnew = Tfall - Pstep * dT_dP_dry(P, Tfall, 0.0, Cp=Cpcurr, const=const)
+        Tfallnew = Tfall - Pstep * dry_adiabat(P, Tfall, 0.0, c_p=Cpcurr, const=const)
 
         if (P < 22632) or (Tfallnew < 216.6):
             fadjTf = Pstep / 100.0
-            Tfallnew = (1 - fadjTf) * Tfallnew + fadjTf * T_stratosphere(Pnew)
+            Tfallnew = (1 - fadjTf) * Tfallnew + fadjTf * temp_strat(Pnew)
 
-        Trisenew = Trise - Pstep * dT_dP_moist(
+        entrain_param = entrainment(Trise, P, Rplume, const)
+
+        Trisenew = Trise - Pstep * moist_adiabat(
             P,
             Trise,
             Tfall,
@@ -585,12 +750,12 @@ def kayer(
             frise / (1.0 - frise),
             0.0,
             saturation_vapor_pressure(Trise),
-            Cp=Cpcurr,
-            radius=Rplume,
+            entrain_param,
+            c_p=Cpcurr,
             const=const,
         )
 
-        wnew = w - Pstep * dw_dP(
+        wnew = w - Pstep * upward_wind_gradient(
             P,
             Trise,
             Tfall,
@@ -598,7 +763,7 @@ def kayer(
             frise / (1.0 - frise),
             0.0,
             w,
-            radius=Rplume,
+            entrain_param,
             const=const,
         )
 
@@ -637,7 +802,7 @@ def kayer(
                 frdRpl = 0.5 * fracdelm - 0.5 * frdrho
                 Rplume = min(Rplume * (1.0 + frdRpl), Ruu * np.sqrt(2.0))
 
-        if Trisenew > (273.15 - supercoolK):
+        if Trisenew > (const.temp_freeze - supercoolK):
             Eij = np.ones([n_bins, n_bins]) * waterS
             wjQQ = vrQQ * np.sqrt(Trise / P)
         else:
@@ -830,7 +995,7 @@ def kayer(
         w = Velocities[i]
         velpart = np.zeros(n_bins)
 
-        if T > (273.15 - supercoolK):
+        if T > (const.temp_freeze - supercoolK):
             wjQQ = vrQQ * np.sqrt(T / P)
         else:
             wjQQ = vrQQ * np.sqrt(T / P) / (rhrro)
@@ -946,7 +1111,7 @@ def kayer(
                     slopesnew[s] = 0.0
                     n0snew[s] = 0.0
 
-        if T > (273.15 - supercoolK):
+        if T > (const.temp_freeze - supercoolK):
             Qcoeff = 1.0 - waterS
             radju = 1.0
         else:
