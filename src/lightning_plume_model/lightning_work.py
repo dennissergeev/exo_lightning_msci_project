@@ -16,32 +16,51 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-@dataclass
+@dataclass(frozen=True)
 class PhysicalConstants:
     """Physical constants used in lightning plume model calculations."""
 
-    g: float = 9.81
-    R: float = 8.31446
-    mu: float = 0.02896
-    epsilon: float = 0.6222
-    c_p: float = 14500.0
-    L: float = 2257000.0
-    eps0: float = 8.854e-12
-    e_charge: float = 1.602e-19
-    rho_water: float = 1000.0
-    rhoro: float = 2.5
-    Cdrag: float = 0.5
-    Eflash: float = 1.5e9
-    mfptime: float = 4.0e-11
-    temp_freeze: float = 273.15
+    g: float = 9.81  # Gravitational acceleration [m/s2]
+    R: float = 8.31446  # Universal gas constant [J/mol/K]
+    mu: float = 0.02896  # Molar mass of dry air [kg/mol]
+    epsilon: float = 0.6222  # Ratio of molecular weights [dimensionless]
+    c_p: float = 14500.0  # Specific heat capacity at constant pressure [J/kg/K]
+    L: float = 2257000.0  # Latent heat of vaporization of water [J/kg]
+    eps0: float = 8.854e-12  # Vacuum permittivity [F/m]
+    e_charge: float = 1.602e-19  # Elementary charge [C]
+    rho_water: float = 1000.0  # Density of liquid water [kg/m3]
+    rhoro: float = 2.5  # Ratio of ice to liquid water density [dimensionless]
+    Cdrag: float = 0.5  # Drag coefficient [dimensionless]
+    Eflash: float = 1.5e9  # Energy per lightning flash [J]
+    mfptime: float = 4.0e-11  # Mean free path time for ion collisions [s]
+    temp_freeze: float = 273.15  # Freezing point of water [K]
+    bar_to_pa: float = 1e5  # Conversion factor from bar to Pascal [Pa/bar]
 
 
 # Initialize physical constants
 CONST = PhysicalConstants()
 
 
-def saturation_vapor_pressure(temp: float) -> float:
-    """Saturation vapor pressure of water (Lowe 1977)."""
+@dataclass
+class SimulationParameters:
+    """Configurable parameters for a single simulation run."""
+
+    plume_base_temp: float
+    base_humidity_fraction: float
+    plume_base_radius: float
+    temp_supercool: float
+    water_collision_efficiency: float
+    ice_collision_efficiency: float
+    start_pressure: float = 100_000.0
+    pressure_step: float = 10.0
+    growth_time_step: float = 0.01
+    n_bins: int = 31
+    min_radius: float = 1e-5
+    max_radius: float = 0.46340950011842
+
+
+def saturation_vapour_pressure(temp: float) -> float:
+    """Saturation vapour pressure of water (Lowe 1977)."""
     a0 = 6984.505294
     a1 = -188.9039310
     a2 = 2.133357675
@@ -134,7 +153,7 @@ def entrainment(
     - :math:`T` is temperature [K]
     - :math:`\mu` is the molar mass of dry air [kg/mol]
     - :math:`P` is pressure [Pa]
-    - :math:`g` is gravity [m/s^2]
+    - :math:`g` is gravity [m/s2]
 
     Parameters
     ----------
@@ -629,13 +648,7 @@ def dEdt(
 
 
 def kayer(
-    Tuu: float,
-    humid: float,
-    Ruu: float,
-    suu: float,
-    waterS: float = 0.8,
-    iceS: float = 0.0,
-    n_bins: int = 31,
+    sim_params: SimulationParameters,
     const: PhysicalConstants = CONST,
 ) -> Tuple[
     List[float],
@@ -650,33 +663,20 @@ def kayer(
     List[float],
 ]:
     """
-    Run simulation - COPIED FROM ORIGINAL with n_bins parameter added and physical
-    constants centralized in PhysicalConstants.
-
-    Parameters:
-    -----------
-    Tuu : Base plume temperature (K)
-    humid : Relative humidity (0-1)
-    Ruu : Initial plume radius (m)
-    suu : Supercooling threshold (K)
-    waterS : Water collision efficiency
-    iceS : Ice collision efficiency
-    n_bins : Number of particle size bins (NEW PARAMETER)
-    const : Physical constants dataclass
+    Run simulation
     """
-    anlT = 10.0 + 3.0 * (Tuu - 295.0) / 10.0
-    Trin = Tuu
-    Tfin = Tuu + anlT
+    anlT = 10.0 + 3.0 * (sim_params.plume_base_temp - 295.0) / 10.0
+    Trin = sim_params.plume_base_temp
+    Tfin = sim_params.plume_base_temp + anlT
     fprea = (
-        humid
+        sim_params.base_humidity_fraction
         * const.epsilon
-        * saturation_vapor_pressure(Trin)
-        / (100000.0 - saturation_vapor_pressure(Trin))
+        * saturation_vapour_pressure(Trin)
+        / (CONST.bar_to_pa - saturation_vapour_pressure(Trin))
     )
     frise = fprea / (1.0 + fprea)
-    Rplume = Ruu
+    Rplume = sim_params.plume_base_radius
     Eflash = const.Eflash
-    supercoolK = suu
 
     Pmax = 1.0
     P = (10**5) * Pmax
@@ -696,14 +696,14 @@ def kayer(
     lsrise: List[float] = []
     Radii: List[float] = []
 
-    binbounds = np.geomspace(0.00001, 0.46340950011842, n_bins + 1)
+    binbounds = np.geomspace(0.00001, 0.46340950011842, sim_params.n_bins + 1)
     rhoin = const.rho_water
     rhoro = const.rhoro
     rhrro = rhoro ** (1.0 / 3.0)
     vrQQ = np.sqrt((8.0 / (3.0 * const.Cdrag)) * rhoin * const.g * const.R / const.mu)
-    vrel = np.ones([n_bins, n_bins]) * 10.0
+    vrel = np.ones([sim_params.n_bins, sim_params.n_bins]) * 10.0
     delt = 0.01
-    upbsin = np.zeros(n_bins)
+    upbsin = np.zeros(sim_params.n_bins)
     for s in range(len(binbounds) - 1):
         upbsin[s] = binbounds[s]
     upbsin[0] = binbounds[1]
@@ -714,11 +714,11 @@ def kayer(
     Upbos: List[np.ndarray] = []
     NPrecipitations: List[np.ndarray] = []
     MPrecipitations: List[np.ndarray] = []
-    n0s = np.zeros(n_bins)
-    slopes = np.zeros(n_bins)
-    upbs = upbsin + np.zeros(n_bins)
-    precipN = np.zeros(n_bins)
-    precipM = np.zeros(n_bins)
+    n0s = np.zeros(sim_params.n_bins)
+    slopes = np.zeros(sim_params.n_bins)
+    upbs = upbsin + np.zeros(sim_params.n_bins)
+    precipN = np.zeros(sim_params.n_bins)
+    precipM = np.zeros(sim_params.n_bins)
 
     for i in range(stepmax):
         Pressures.append(P)
@@ -749,7 +749,7 @@ def kayer(
             condensate,
             frise / (1.0 - frise),
             0.0,
-            saturation_vapor_pressure(Trise),
+            saturation_vapour_pressure(Trise),
             entrain_param,
             c_p=Cpcurr,
             const=const,
@@ -768,8 +768,8 @@ def kayer(
         )
 
         frsnew = 0.6222 * (
-            saturation_vapor_pressure(Trisenew)
-            / (Pnew - saturation_vapor_pressure(Trisenew))
+            saturation_vapour_pressure(Trisenew)
+            / (Pnew - saturation_vapour_pressure(Trisenew))
         )
         fsatnew = frsnew / (1.0 + frsnew)
 
@@ -793,24 +793,35 @@ def kayer(
                     / ((const.epsilon + (1.0 - const.epsilon) * frisenew) ** 2)
                 ) / muecurr
                 frdRpl = 0.5 * fracdelm - 0.5 * frdrho
-                Rplume = min(Rplume * (1.0 + frdRpl), Ruu * np.sqrt(2.0))
+                Rplume = min(
+                    Rplume * (1.0 + frdRpl), sim_params.plume_base_radius * np.sqrt(2.0)
+                )
         else:
             fcondens = 0.0
             frisenew = frise
             if w > 0.001:
                 frdrho = (-Pstep - (Trisenew - Trise) * Pnew / Trisenew) / Pnew
                 frdRpl = 0.5 * fracdelm - 0.5 * frdrho
-                Rplume = min(Rplume * (1.0 + frdRpl), Ruu * np.sqrt(2.0))
+                Rplume = min(
+                    Rplume * (1.0 + frdRpl), sim_params.plume_base_radius * np.sqrt(2.0)
+                )
 
-        if Trisenew > (const.temp_freeze - supercoolK):
-            Eij = np.ones([n_bins, n_bins]) * waterS
+        if Trisenew > (const.temp_freeze - sim_params.temp_supercool):
+            Eij = (
+                np.ones([sim_params.n_bins, sim_params.n_bins])
+                * sim_params.water_collision_efficiency
+            )
             wjQQ = vrQQ * np.sqrt(Trise / P)
         else:
-            Eij = np.ones([n_bins, n_bins]) * iceS * (rhrro**2)
+            Eij = (
+                np.ones([sim_params.n_bins, sim_params.n_bins])
+                * sim_params.ice_collision_efficiency
+                * (rhrro**2)
+            )
             wjQQ = vrQQ * np.sqrt(Trise / P) / (rhrro)
 
-        for ie in range(n_bins):
-            for j in range(n_bins):
+        for ie in range(sim_params.n_bins):
+            for j in range(sim_params.n_bins):
                 wiprea = wjQQ * np.sqrt(binbounds[max(ie, j) + 1])
                 wjprea = wjQQ * np.sqrt(binbounds[min(ie, j)])
                 vrel[ie, j] = abs(wiprea - wjprea)
@@ -824,13 +835,13 @@ def kayer(
         if condensate_new_init <= 0 or wnew <= 0:
             condensate_new = 0.0
             togglecondens = 0
-            n0s = np.zeros(n_bins)
-            slopes = np.zeros(n_bins)
-            upbs = upbsin + np.zeros(n_bins)
+            n0s = np.zeros(sim_params.n_bins)
+            slopes = np.zeros(sim_params.n_bins)
+            upbs = upbsin + np.zeros(sim_params.n_bins)
         else:
             if togglecondens == 0:
                 togglecondens = 1
-                n0sin = np.zeros(n_bins)
+                n0sin = np.zeros(sim_params.n_bins)
                 lz = condensate_new_init
                 n0sin[0] = (
                     (lz / (1.0 - lz))
@@ -844,15 +855,15 @@ def kayer(
                     / (binbounds[1] - binbounds[0])
                 )
                 sizecrit = min((w / wjQQ) ** 2, binbounds[-1])
-                slopes = np.zeros(n_bins)
-                n0s = n0sin + np.zeros(n_bins)
-                upbs = upbsin + np.zeros(n_bins)
+                slopes = np.zeros(sim_params.n_bins)
+                n0s = n0sin + np.zeros(sim_params.n_bins)
+                upbs = upbsin + np.zeros(sim_params.n_bins)
 
                 for q in range(stepsfly):
                     n0s, slopes, upbs = stepgrow(
                         n0s, slopes, binbounds, upbs, rhoin, Eij, vrel, delt
                     )
-                    for qq in range(n_bins):
+                    for qq in range(sim_params.n_bins):
                         if not (n0s[qq] > 0 or n0s[qq] < 0):
                             n0s[qq] = 0.0
                         if not (slopes[qq] > 0 or slopes[qq] < 0):
@@ -876,7 +887,7 @@ def kayer(
                     n0s, slopes, upbs = stepgrow(
                         n0s, slopes, binbounds, upbs, rhoin, Eij, vrel, delt
                     )
-                    for qq in range(n_bins):
+                    for qq in range(sim_params.n_bins):
                         if not (n0s[qq] > 0 or n0s[qq] < 0):
                             n0s[qq] = 0.0
                         if not (slopes[qq] > 0 or slopes[qq] < 0):
@@ -886,7 +897,7 @@ def kayer(
                 int(np.floor(np.log(sizecrit / 0.00001) / np.log(np.sqrt(2.0)))), 0
             )
 
-            for ssa in range(n_bins):
+            for ssa in range(sim_params.n_bins):
                 if (
                     n0s[ssa] + 0.5 * (binbounds[ssa] - binbounds[ssa + 1]) * slopes[ssa]
                     <= 0
@@ -906,10 +917,10 @@ def kayer(
 
             mpvout = 0.0
             mpvin = 0.0
-            precipN = np.zeros(n_bins)
-            precipM = np.zeros(n_bins)
+            precipN = np.zeros(sim_params.n_bins)
+            precipM = np.zeros(sim_params.n_bins)
 
-            for ffg in range(binsed, n_bins, 1):
+            for ffg in range(binsed, sim_params.n_bins, 1):
                 rpl = upbs[ffg]
                 rmi = binbounds[ffg]
                 R4 = 0.25 * (rpl**4 - rmi**4)
@@ -957,10 +968,10 @@ def kayer(
         MPrecipitations.append(precipM)
 
     # Final precipitation
-    precipN = np.zeros(n_bins)
-    precipM = np.zeros(n_bins)
+    precipN = np.zeros(sim_params.n_bins)
+    precipM = np.zeros(sim_params.n_bins)
     mpvout = 0.0
-    for ffg in range(0, n_bins, 1):
+    for ffg in range(0, sim_params.n_bins, 1):
         rpl = upbs[ffg]
         rmi = binbounds[ffg]
         R4 = 0.25 * (rpl**4 - rmi**4)
@@ -993,21 +1004,21 @@ def kayer(
         P = Pressures[i]
         T = Tempsrise[i]
         w = Velocities[i]
-        velpart = np.zeros(n_bins)
+        velpart = np.zeros(sim_params.n_bins)
 
-        if T > (const.temp_freeze - supercoolK):
+        if T > (const.temp_freeze - sim_params.temp_supercool):
             wjQQ = vrQQ * np.sqrt(T / P)
         else:
             wjQQ = vrQQ * np.sqrt(T / P) / (rhrro)
 
-        for s in range(n_bins):
+        for s in range(sim_params.n_bins):
             r0 = binbounds[s] * 1.1892
             velpart[s] = w - wjQQ * np.sqrt(r0)
 
-        Ns = np.zeros(n_bins)
-        Ms = np.zeros(n_bins)
+        Ns = np.zeros(sim_params.n_bins)
+        Ms = np.zeros(sim_params.n_bins)
 
-        for f in range(n_bins):
+        for f in range(sim_params.n_bins):
             if n0s[f] + 0.5 * (binbounds[f] - binbounds[f + 1]) * slopes[f] <= 0:
                 rpl = binbounds[f]
             elif n0s[f] + 0.5 * (binbounds[f + 1] - binbounds[f]) * slopes[f] >= 0:
@@ -1025,11 +1036,11 @@ def kayer(
                 n0s[f] - 0.5 * (binbounds[f + 1] + rmi) * slopes[f]
             ) + (0.5 * (rpl**2 - rmi**2)) * slopes[f]
 
-        precipN = np.zeros(n_bins)
-        precipM = np.zeros(n_bins)
-        precipC = np.zeros(n_bins)
+        precipN = np.zeros(sim_params.n_bins)
+        precipM = np.zeros(sim_params.n_bins)
+        precipC = np.zeros(sim_params.n_bins)
 
-        for fg in range(n_bins):
+        for fg in range(sim_params.n_bins):
             rD = (w / wjQQ) ** 2
             if rD >= binbounds[fg + 1]:
                 precipC[fg] = 0.0
@@ -1045,18 +1056,18 @@ def kayer(
         for k in range(i, 9990):
             aNp = NPrecipitations[k]
             aMp = MPrecipitations[k]
-            for f in range(n_bins):
+            for f in range(sim_params.n_bins):
                 precipN[f] = precipN[f] + aNp[f] * Velocities[k] * precipC[f]
                 precipM[f] = precipM[f] + aMp[f] * Velocities[k] * precipC[f]
 
         Ns = Ns + precipN
         Ms = Ms + precipM
 
-        n0snew = np.zeros(n_bins)
-        slopesnew = np.zeros(n_bins)
-        upboss = np.zeros(n_bins)
+        n0snew = np.zeros(sim_params.n_bins)
+        slopesnew = np.zeros(sim_params.n_bins)
+        upboss = np.zeros(sim_params.n_bins)
 
-        for s in range(n_bins):
+        for s in range(sim_params.n_bins):
             R2 = 0.5 * (binbounds[s + 1] ** 2 - binbounds[s] ** 2)
             R4 = 0.25 * (binbounds[s + 1] ** 4 - binbounds[s] ** 4)
             R5 = 0.2 * (binbounds[s + 1] ** 5 - binbounds[s] ** 5)
@@ -1111,11 +1122,11 @@ def kayer(
                     slopesnew[s] = 0.0
                     n0snew[s] = 0.0
 
-        if T > (const.temp_freeze - supercoolK):
-            Qcoeff = 1.0 - waterS
+        if T > (const.temp_freeze - sim_params.temp_supercool):
+            Qcoeff = 1.0 - sim_params.water_collision_efficiency
             radju = 1.0
         else:
-            Qcoeff = 1.0 - iceS
+            Qcoeff = 1.0 - sim_params.ice_collision_efficiency
             radju = rhrro
 
         kara = dQdt(
@@ -1159,142 +1170,118 @@ def kayer(
     )
 
 
-def plot_comparison(results_280, results_310, param_name, output_dir):
+def plot_comparison(results, param_name, output_dir):
     """Create comparison plots for two temperature scenarios."""
-    P280, v280, T280, Pl280, Rf280, Td280, R280, Tf280, fs280, lc280 = results_280
-    P310, v310, T310, Pl310, Rf310, Td310, R310, Tf310, fs310, lc310 = results_310
+    # Define plot configurations as a dict of PlotConfigs
 
-    Pbar280 = np.array(P280) / 1e5
-    Pbar310 = np.array(P310) / 1e5
-    Plbar280 = Pl280 / 1e5
-    Plbar310 = Pl310 / 1e5
+    @dataclass
+    class _PlotConfig:
+        """Configuration for a single plot."""
 
-    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+        data_idx: int
+        ylabel: str
+        title: str
+        units: str
+
+    plot_configs = {
+        "velocity": _PlotConfig(
+            data_idx=1,
+            ylabel="Vertical velocity",
+            title="Vertical Plume Velocity",
+            units="m/s",
+        ),
+        "plume_temp": _PlotConfig(
+            data_idx=2, ylabel="Temperature", title="Plume Temperature", units="K"
+        ),
+        "env_temp": _PlotConfig(
+            data_idx=7, ylabel="Temperature", title="Environment Temperature", units="K"
+        ),
+        "temp_diff": _PlotConfig(
+            data_idx=5,
+            ylabel="Temperature difference",
+            title="Plume-Environment Temp Difference",
+            units="K",
+        ),
+        "radius": _PlotConfig(
+            data_idx=6, ylabel="Radius", title="Plume Radius", units="m"
+        ),
+        "flash_rate": _PlotConfig(
+            data_idx=4,
+            ylabel="Flash rate",
+            title="Lightning Flash Rate",
+            units="flashes/s/km2",
+        ),
+    }
+
+    # Create figure with mosaic layout using plot_configs keys
+    mosaic = [list(plot_configs.keys())[:3], list(plot_configs.keys())[3:]]
+
+    fig = plt.figure(figsize=(15, 10))
+    axes = fig.subplot_mosaic(mosaic, constrained_layout=True)
     fig.suptitle(param_name, fontsize=14, fontweight="bold")
 
-    # Velocities
-    axes[0, 0].plot(Pbar280, v280, "k-", label="280K base", linewidth=1.5)
-    axes[0, 0].plot(Pbar310, v310, "b-", label="310K base", linewidth=1.5)
-    axes[0, 0].set_xlabel("Pressure (bar)")
-    axes[0, 0].set_ylabel("Vertical velocity (m/s)")
-    axes[0, 0].set_title("Vertical Plume Velocity")
-    axes[0, 0].legend()
-    axes[0, 0].grid(True, alpha=0.3)
+    # Plot each variable
+    for name, config in plot_configs.items():
+        ax = axes[name]
 
-    # Plume temperatures
-    axes[0, 1].plot(Pbar280, T280, "k-", label="280K base", linewidth=1.5)
-    axes[0, 1].plot(Pbar310, T310, "b-", label="310K base", linewidth=1.5)
-    axes[0, 1].set_xlabel("Pressure (bar)")
-    axes[0, 1].set_ylabel("Temperature (K)")
-    axes[0, 1].set_title("Plume Temperature")
-    axes[0, 1].legend()
-    axes[0, 1].grid(True, alpha=0.3)
+        for run_label, data in results.items():
+            # Convert pressure to bar
+            if config.data_idx == 4:  # Flash rate uses different pressure array
+                x = data[3] / 1e5  # Plim
+            else:
+                x = np.array(data[0]) / 1e5  # P
 
-    # Environment temperatures
-    axes[0, 2].plot(Pbar280, Tf280, "k-", label="280K base", linewidth=1.5)
-    axes[0, 2].plot(Pbar310, Tf310, "b-", label="310K base", linewidth=1.5)
-    axes[0, 2].set_xlabel("Pressure (bar)")
-    axes[0, 2].set_ylabel("Temperature (K)")
-    axes[0, 2].set_title("Environment Temperature")
-    axes[0, 2].legend()
-    axes[0, 2].grid(True, alpha=0.3)
+            y = data[config.data_idx]
 
-    # Temperature differences
-    axes[1, 0].plot(Pbar280, Td280, "k-", label="280K base", linewidth=1.5)
-    axes[1, 0].plot(Pbar310, Td310, "b-", label="310K base", linewidth=1.5)
-    axes[1, 0].set_xlabel("Pressure (bar)")
-    axes[1, 0].set_ylabel("Temperature difference (K)")
-    axes[1, 0].set_title("Plume-Environment Temp Difference")
-    axes[1, 0].legend()
-    axes[1, 0].grid(True, alpha=0.3)
+            ax.plot(x, y, label=run_label, linewidth=1.5)
 
-    # Plume radii
-    axes[1, 1].plot(Pbar280, R280, "k-", label="280K base", linewidth=1.5)
-    axes[1, 1].plot(Pbar310, R310, "b-", label="310K base", linewidth=1.5)
-    axes[1, 1].set_xlabel("Pressure (bar)")
-    axes[1, 1].set_ylabel("Radius (m)")
-    axes[1, 1].set_title("Plume Radius")
-    axes[1, 1].legend()
-    axes[1, 1].grid(True, alpha=0.3)
+        ax.set_xlabel("Pressure [bar]")
+        ax.set_ylabel(f"{config.ylabel} ({config.units})")
+        ax.set_title(config.title)
+        ax.legend()
+        ax.grid(True, alpha=0.3)
 
-    # Flash rates
-    axes[1, 2].plot(Plbar280, Rf280, "k-", label="280K base", linewidth=1.5)
-    axes[1, 2].plot(Plbar310, Rf310, "b-", label="310K base", linewidth=1.5)
-    axes[1, 2].set_xlabel("Pressure (bar)")
-    axes[1, 2].set_ylabel("Flash rate (flashes/s/km²)")
-    axes[1, 2].set_title("Lightning Flash Rate")
-    axes[1, 2].legend()
-    axes[1, 2].grid(True, alpha=0.3)
-
-    plt.tight_layout()
-
-    filename = f"{param_name.replace(' ', '_')}.png"
+    filename = f"{param_name}.png"
     plt.savefig(output_dir / filename, dpi=150, bbox_inches="tight")
-    plt.close()
-
     print(f"  Saved: {filename}")
+    plt.close()
 
 
 def main():
     """Main simulation runner."""
-    outdir = Path(__file__).parent / "output"
-    outdir.mkdir(exist_ok=True, parents=True)
 
-    n_bins = 31  # Number of particle size bins
     const = PhysicalConstants()  # centralized constants instance
 
-    for effICE in [0.0]:
-        for effWAT in [0.5]:
-            for tempSC in [40.0]:
-                param_desc = (
-                    f"{tempSC}K supercool, {effICE} ice eff, {effWAT} water eff"
-                )
-                print(f"\n{'=' * 60}")
-                print(f"Running: {param_desc}")
-                print(f"{'=' * 60}")
+    base_temps = [280.0, 310.0]
 
-                print("\nSimulating 280K...")
-                R280 = kayer(
-                    280.0,
-                    0.9,
-                    1000.0,
-                    tempSC,
-                    waterS=effWAT,
-                    iceS=effICE,
-                    n_bins=n_bins,
-                    const=const,
-                )
+    results = {}
+    for base_temp in base_temps:
+        sim_params = SimulationParameters(
+            n_bins=31,
+            plume_base_temp=base_temp,
+            base_humidity_fraction=0.9,
+            plume_base_radius=1000.0,
+            temp_supercool=40.0,
+            water_collision_efficiency=0.5,
+            ice_collision_efficiency=0.0,
+        )
+        param_desc = (
+            f"base_temp_{sim_params.plume_base_temp:.0f}__{sim_params.temp_supercool:.0f}"
+            f"{sim_params.water_collision_efficiency:.1f}__{sim_params.ice_collision_efficiency:.1f}"
+        ).replace(".", "p")
 
-                print("\nSimulating 310K...")
-                R310 = kayer(
-                    310.0,
-                    0.9,
-                    1000.0,
-                    tempSC,
-                    waterS=effWAT,
-                    iceS=effICE,
-                    n_bins=n_bins,
-                    const=const,
-                )
+        print(f"Simulating {base_temp:.0f} K...")
+        run_label = f"base_temp_{base_temp:.0f}K"
 
-                print("\nGenerating plots...")
-                plot_comparison(R280, R310, param_desc, outdir)
+        results[run_label] = kayer(sim_params, const)
+        print(
+            f"{run_label}: Total flash rate = {float(np.sum(results[run_label][4])) * 1.5e3:.2f} W/m2"
+        )
 
-                total_280 = np.sum(R280[4]) * 1.5e3
-                total_310 = np.sum(R310[4]) * 1.5e3
-
-                print(f"\n{'=' * 60}")
-                print("Results Summary:")
-                print(f"{'=' * 60}")
-                print(f"280K: Total flash rate = {total_280:.2f} W/m²")
-                print(
-                    f"      Supercooling = {tempSC}K, efficiencies ice={effICE}, water={effWAT}"
-                )
-                print(f"\n310K: Total flash rate = {total_310:.2f} W/m²")
-                print(
-                    f"      Supercooling = {tempSC}K, efficiencies ice={effICE}, water={effWAT}"
-                )
-                print(f"{'=' * 60}\n")
+    print("Generating plots...")
+    outdir = Path(__file__).parent / "output"
+    outdir.mkdir(exist_ok=True, parents=True)
+    plot_comparison(results, param_desc, outdir)
 
 
 if __name__ == "__main__":
