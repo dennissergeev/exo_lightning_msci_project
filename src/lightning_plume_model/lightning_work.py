@@ -1,13 +1,7 @@
-"""
-Earth 1-D Lightning Simulation - Minimally Modified from Original
+#!/usr/bin/env python3
+"""Earth 1-D Lightning Simulation."""
 
-Only changes from original:
-1. Made n_bins a parameter (default 31)
-2. Created plot_comparison() function for organized plotting
-3. Slightly cleaner main() function
-4. Moved physical constants into a separate dataclass
-"""
-
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Tuple, Union
@@ -456,7 +450,7 @@ def stepgrow(
 
     # Vectorized conditions for upper bounds calculation
     cond1 = n0s + 0.5 * (binbounds[:-1] - binbounds[1:]) * slopes <= 0
-    cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes >= 0
+    cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes > 0
 
     # Vectorized upper bounds calculation
     upbos = np.where(
@@ -687,7 +681,7 @@ def dQdt(
     ionnumbers: np.ndarray = None,
     ionvelocities: np.ndarray = None,
     Qcoefff: float = 1.0,
-    radju: float = 1,
+    radju: float = 1.0,
 ) -> np.ndarray:
     r"""
     Calculate the rate of charge transfer between particle bins.
@@ -771,7 +765,7 @@ def dQdt(
 
     # Calculate ns array using vectorized operations
     cond1 = n0s + 0.5 * (binbounds[:-1] - binbounds[1:]) * slopes <= 0
-    cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes >= 0
+    cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes > 0
 
     rpl = np.where(
         cond1,
@@ -894,7 +888,7 @@ def dEdt(
     """
     # Vectorized conditions for rpl calculation
     cond1 = n0s + 0.5 * (binbounds[:-1] - binbounds[1:]) * slopes <= 0
-    cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes >= 0
+    cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes > 0
 
     # Vectorized rpl calculation
     rpl = np.where(
@@ -1194,7 +1188,7 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
 
             # Calculate conditions for all bins at once
             cond1 = n0s + 0.5 * (binbounds[:-1] - binbounds[1:]) * slopes <= 0
-            cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes >= 0
+            cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes > 0
 
             # Use np.where to vectorize the conditions
             upbs = np.where(
@@ -1262,8 +1256,11 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
 
                 mpvin = np.sum(RRa)
 
-            # Calculate final condensate
-            condensate_new = condensate_new_init * mpvin / (mpvout + mpvin)
+            if (mpvout + mpvin) > 0.0:
+                # Calculate final condensate
+                condensate_new = condensate_new_init * mpvin / (mpvout + mpvin)
+            else:
+                condensate_new = condensate_new_init  # TODO: check
 
         P = Pnew
         Trise = Trisenew
@@ -1318,8 +1315,11 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
     # Pre-calculate array indices
     sample_indices = np.arange(samples) * sim_params.flash_rate_sampling
 
+    Qcoeff = 1.0
+    radju = 1.0
+
     for ib, i in enumerate(sample_indices):
-        if (ib / 100.0) == np.ceil(ib / 100.0):
+        if (ib % 100.0) == 0.0:
             print(ib)
 
         n0s = n0s_per_level[i, :]
@@ -1340,7 +1340,7 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
 
         # Vectorized calculation of rpl
         cond1 = n0s + 0.5 * (binbounds[:-1] - binbounds[1:]) * slopes <= 0
-        cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes >= 0
+        cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes > 0
         rpl = np.where(
             cond1,
             binbounds[:-1],
@@ -1601,6 +1601,7 @@ def plot_comparison(
 
 def main():
     """Main simulation runner."""
+    start_time = time.time()
 
     const = PhysicalConstants()  # centralized constants instance
 
@@ -1628,6 +1629,9 @@ def main():
             f"{run_label}: Total flash rate = "
             f"{float(np.sum(results[run_label]['flash_rate'])) * 1.5e3:.2f} W/m2"
         )
+
+    elapsed_time = time.time() - start_time
+    print(f"\nCalculation time: {elapsed_time:.2f} seconds")
 
     print("Generating plots...")
     outdir = Path(__file__).parent / "output"
