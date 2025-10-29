@@ -341,6 +341,51 @@ def upward_wind_gradient(
     return dwdPn
 
 
+def calculate_rpl(
+    n0s: np.ndarray,
+    slopes: np.ndarray,
+    binbounds: np.ndarray,
+) -> np.ndarray:
+    """
+    Calculate rpl (radius upper limit) for particle distribution bins.
+
+    This function determines the upper radius limit where the piecewise linear
+    distribution becomes zero or reaches the bin boundary. For each bin, the
+    distribution is n(r) = n0 + s(r - r0), where n0 is the density at bin
+    center and s is the slope.
+
+    Parameters
+    ----------
+    n0s : np.ndarray
+        Number density at bin centers [1/m^4]
+    slopes : np.ndarray
+        Slopes of linear distribution in each bin [1/m^5]
+    binbounds : np.ndarray
+        Boundaries of particle size bins [m], length n_bins + 1
+
+    Returns
+    -------
+    np.ndarray
+        Upper radius limits for each bin [m]
+
+    Notes
+    -----
+    The function handles three cases:
+    1. If n(r) <= 0 at the lower bound, rpl = lower bound
+    2. If n(r) >= 0 at the upper bound, rpl = upper bound
+    3. Otherwise, rpl is calculated using slopes and n0
+    """
+    # Vectorized conditions for rpl calculation
+    cond1 = n0s + 0.5 * (binbounds[:-1] - binbounds[1:]) * slopes <= 0
+    cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes >= 0
+    other_values = 0.5 * (binbounds[:-1] + binbounds[1:]) - np.divide(
+        n0s, slopes, out=np.zeros_like(n0s), where=slopes != 0.0
+    )
+
+    rpl = np.where(cond1, binbounds[:-1], np.where(cond2, binbounds[1:], other_values))
+    return rpl
+
+
 def stepgrow(
     sim_params: SimulationParameters,
     n0s: np.ndarray,
@@ -448,18 +493,8 @@ def stepgrow(
     # Calculate r0s array in one operation
     r0s = (binbounds[1:] + binbounds[:-1]) / 2.0
 
-    # Vectorized conditions for upper bounds calculation
-    cond1 = n0s + 0.5 * (binbounds[:-1] - binbounds[1:]) * slopes <= 0
-    cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes > 0
-
     # Vectorized upper bounds calculation
-    upbos = np.where(
-        cond1,
-        binbounds[:-1],
-        np.where(
-            cond2, binbounds[1:], 0.5 * (binbounds[:-1] + binbounds[1:]) - n0s / slopes
-        ),
-    )
+    upbos = calculate_rpl(n0s, slopes, binbounds)
 
     # Vectorized masks for different conditions
     mask_full = upbos >= binbounds[1:]
@@ -764,16 +799,7 @@ def dQdt(
     r0s = (binbounds[1:] + binbounds[:-1]) / 2.0
 
     # Calculate ns array using vectorized operations
-    cond1 = n0s + 0.5 * (binbounds[:-1] - binbounds[1:]) * slopes <= 0
-    cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes > 0
-
-    rpl = np.where(
-        cond1,
-        binbounds[:-1],
-        np.where(
-            cond2, binbounds[1:], 0.5 * (binbounds[:-1] + binbounds[1:]) - n0s / slopes
-        ),
-    )
+    rpl = calculate_rpl(n0s, slopes, binbounds)
 
     rmi = binbounds[:-1]
 
@@ -886,18 +912,8 @@ def dEdt(
     - :math:`e` is the elementary charge
     - :math:`m_i` is the ion mass
     """
-    # Vectorized conditions for rpl calculation
-    cond1 = n0s + 0.5 * (binbounds[:-1] - binbounds[1:]) * slopes <= 0
-    cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes > 0
-
-    # Vectorized rpl calculation
-    rpl = np.where(
-        cond1,
-        binbounds[:-1],
-        np.where(
-            cond2, binbounds[1:], 0.5 * (binbounds[:-1] + binbounds[1:]) - n0s / slopes
-        ),
-    )
+    # Calculate rpl using helper function
+    rpl = calculate_rpl(n0s, slopes, binbounds)
 
     # Get starting bounds
     rmi = binbounds[:-1]
@@ -1187,20 +1203,8 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
             )
 
             # Calculate conditions for all bins at once
-            cond1 = n0s + 0.5 * (binbounds[:-1] - binbounds[1:]) * slopes <= 0
-            cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes > 0
+            upbs = calculate_rpl(n0s, slopes, binbounds)
 
-            # Use np.where to vectorize the conditions
-            upbs = np.where(
-                cond1,
-                binbounds[:-1],  # if cond1 is True
-                np.where(
-                    cond2,
-                    binbounds[1:],  # if cond2 is True
-                    # otherwise calculate the intermediate value
-                    0.5 * (binbounds[:-1] + binbounds[1:]) - n0s / slopes,
-                ),
-            )
             # Initialize variables
             mpvout = 0.0
             mpvin = 0.0
@@ -1339,17 +1343,7 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
         velpart = w - wjQQ * np.sqrt(binbounds[:-1] * 1.1892)
 
         # Vectorized calculation of rpl
-        cond1 = n0s + 0.5 * (binbounds[:-1] - binbounds[1:]) * slopes <= 0
-        cond2 = n0s + 0.5 * (binbounds[1:] - binbounds[:-1]) * slopes > 0
-        rpl = np.where(
-            cond1,
-            binbounds[:-1],
-            np.where(
-                cond2,
-                binbounds[1:],
-                0.5 * (binbounds[:-1] + binbounds[1:]) - n0s / slopes,
-            ),
-        )
+        rpl = calculate_rpl(n0s, slopes, binbounds)
 
         rmi = binbounds[:-1]
         R4 = 0.25 * (rpl**4 - rmi**4)
@@ -1610,7 +1604,8 @@ def main():
     results = {}
     for base_temp in base_temps:
         sim_params = SimulationParameters(
-            n_bins=31,
+            # n_bins=15,
+            # max_radius=1.28000000e-03,
             plume_base_temp=base_temp,
             base_humidity_fraction=0.9,
             plume_base_radius=1000.0,
