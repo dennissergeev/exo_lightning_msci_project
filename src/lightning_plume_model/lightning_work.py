@@ -16,19 +16,21 @@ PROJECT_NAME = "convective_plume_earth"
 class PhysicalConstants:
     """Physical constants used in lightning plume model calculations."""
 
-    g: float = 9.81  # Gravitational acceleration [m/s2]
-    R: float = 8.31446  # Universal gas constant [J/mol/K]
-    mu: float = 0.02896  # Molar mass of dry air [kg/mol]
+    gravity: float = 9.81  # Gravitational acceleration [m/s2]
+    universal_gas_constant: float = 8.31446  # Universal gas constant [J/mol/K]
+    molar_mass_dry_air: float = 0.02896  # Molar mass of dry air [kg/mol]
     epsilon: float = 0.6222  # Ratio of molecular weights [dimensionless]
     c_p: float = 14500.0  # Specific heat capacity at constant pressure [J/kg/K]
-    L: float = 2257000.0  # Latent heat of vaporization of water [J/kg]
-    eps0: float = 8.854e-12  # Vacuum permittivity [F/m]
+    latent_heat_v: float = 2257000.0  # Latent heat of vaporization of water [J/kg]
+    vacuum_perm: float = 8.854e-12  # Vacuum permittivity [F/m]
     e_charge: float = 1.602e-19  # Elementary charge [C]
     rho_water: float = 1000.0  # Density of liquid water [kg/m3]
     rhoro: float = 2.5  # Ratio of ice to liquid water density [dimensionless]
-    Cdrag: float = 0.5  # Drag coefficient [dimensionless]
-    Eflash: float = 1.5e9  # Energy per lightning flash [J]
-    mfptime: float = 4.0e-11  # Mean free path time for ion collisions [s]
+    drag_coef: float = 0.5  # Drag coefficient [dimensionless]
+    energy_per_flash: float = 1.5e9  # Energy per lightning flash [J]
+    mean_free_path_ion_coll: float = (
+        4.0e-11  # Mean free path time for ion collisions [s]
+    )
     temp_freeze: float = 273.15  # Freezing point of water [K]
     pa_to_bar: float = 1e-5  # Conversion factor from Pascal to bar
 
@@ -150,14 +152,19 @@ def dry_adiabat(
     c_p : float, optional
         Specific heat capacity at constant pressure [J/kg/K]
     const : PhysicalConstants, optional
-        Physical constants object
+        Container with physical constants, defaults to CONST
 
     Returns
     -------
     float
         Temperature gradient dT/dP [K/Pa]
     """
-    return const.R * T * ((1 + f / const.epsilon) / (1 + f)) / (const.mu * P * c_p)
+    return (
+        const.universal_gas_constant
+        * T
+        * ((1 + f / const.epsilon) / (1 + f))
+        / (const.molar_mass_dry_air * P * c_p)
+    )
 
 
 def entrainment(
@@ -189,14 +196,19 @@ def entrainment(
     plume_radius : float, optional
         Radius of updraft [m], defaults to 5000.0
     const : PhysicalConstants, optional
-        Physical constants object
+        Container with physical constants, defaults to CONST
 
     Returns
     -------
     float
         Entrainment parameter (phi) [1/Pa]
     """
-    return -0.2 * const.R * T / (plume_radius * const.mu * P * const.g)
+    return (
+        -0.2
+        * const.universal_gas_constant
+        * T
+        / (plume_radius * const.molar_mass_dry_air * P * const.gravity)
+    )
 
 
 def moist_adiabat(
@@ -253,7 +265,7 @@ def moist_adiabat(
     c_p : float, optional
         Specific heat capacity at constant pressure [J/kg/K]
     const : PhysicalConstants, optional
-        Physical constants object
+        Container with physical constants, defaults to CONST
 
     Returns
     -------
@@ -267,13 +279,16 @@ def moist_adiabat(
         Tv = Trise * ((1 + frise / const.epsilon) / (1 + frise))
         numer = (
             1
-            + const.L * fS * const.mu / (const.R * Tv)
+            + const.latent_heat_v
+            * fS
+            * const.molar_mass_dry_air
+            / (const.universal_gas_constant * Tv)
             - ((Trise - Tfall) * entrain_param / Gamma)
-            - const.L * (fS - ffall) * entrain_param / (Gamma * c_p)
+            - const.latent_heat_v * (fS - ffall) * entrain_param / (Gamma * c_p)
         )
-        denom = 1 + (const.L * const.L * fS * const.epsilon * const.mu) / (
-            c_p * const.R * Trise * Trise
-        )
+        denom = 1 + (
+            const.latent_heat_v**2 * fS * const.epsilon * const.molar_mass_dry_air
+        ) / (c_p * const.universal_gas_constant * Trise * Trise)
         return Gamma * numer / denom
     else:
         return Gamma - ((Trise - Tfall) * entrain_param)
@@ -319,7 +334,7 @@ def upward_wind_gradient(
     entrain_param : float,
         Entrainment parameter [1/Pa]
     const : PhysicalConstants, optional
-        Object containing physical constants, defaults to CONST
+        Container with physical constants, defaults to CONST
 
     Returns
     -------
@@ -333,12 +348,12 @@ def upward_wind_gradient(
     content, and entrainment effects.
     """
     dwdPn = (
-        -const.R
+        -const.universal_gas_constant
         * (
             Trise * (1 - lcondensate) * ((1 + frise / const.epsilon) / (1 + frise))
             - Tfall * ((1 + ffall / const.epsilon) / (1 + ffall))
         )
-        / (P * const.mu * w)
+        / (P * const.molar_mass_dry_air * w)
         - w * entrain_param
     )
     return dwdPn
@@ -850,7 +865,7 @@ def electric_field_change(
     ionnumbers=None,
     ionvelocities=None,
     ionmasses=None,
-    Efield=0.0,
+    electric_field_strength=0.0,
     const=CONST,
 ):
     """
@@ -881,10 +896,10 @@ def electric_field_change(
         Drift velocities of ion species.
     ionmasses : np.ndarray, optional
         Masses of ion species.
-    Efield : float, optional
+    electric_field_strength : float, optional
         External electric field strength, defaults to 0.0.
     const : PhysicalConstants, optional
-        Physical constants container.
+        Container with physical constants, defaults to CONST
 
     Returns
     -------
@@ -930,12 +945,16 @@ def electric_field_change(
     # Ion current if ions present
     if ionmasses:
         Jd = np.sum(
-            Efield * ionnumbers * const.mfptime * (const.e_charge) ** 2 / ionmasses
+            electric_field_strength
+            * ionnumbers
+            * const.mean_free_path_ion_coll
+            * (const.e_charge) ** 2
+            / ionmasses
         )
     else:
         Jd = 0.0
 
-    return -(Jc + Jd) / const.eps0
+    return -(Jc + Jd) / const.vacuum_perm
 
 
 def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) -> dict:
@@ -989,8 +1008,7 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
         - flash_rate_sampling : int, optional
             Sampling interval for flash rate calculation, default 10
     const : PhysicalConstants, optional
-        Physical constants object containing fundamental constants (g, R, mu, epsilon,
-        c_p, L, eps0, etc.), defaults to CONST
+        Container with physical constants, defaults to CONST
 
     Returns
     -------
@@ -1087,7 +1105,11 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
     )
     rhrro = const.rhoro ** (1.0 / 3.0)
     vrQQ = np.sqrt(
-        (8.0 / (3.0 * const.Cdrag)) * const.rho_water * const.g * const.R / const.mu
+        (8.0 / (3.0 * const.drag_coef))
+        * const.rho_water
+        * const.gravity
+        * const.universal_gas_constant
+        / const.molar_mass_dry_air
     )
 
     # Initialize upbsin more efficiently
@@ -1133,8 +1155,8 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
 
         # Vectorized thermodynamic calculations
         fJrise = frise / (const.epsilon + frise * (1.0 - const.epsilon))
-        muecurr = (1.0 - fJrise * (1.0 - const.epsilon)) * const.mu
-        Cpcurr = 3.5 * const.R / muecurr
+        muecurr = (1.0 - fJrise * (1.0 - const.epsilon)) * const.molar_mass_dry_air
+        Cpcurr = 3.5 * const.universal_gas_constant / muecurr
 
         Tfallnew = Tfall - sim_params.pressure_step * dry_adiabat(
             P, Tfall, 0.0, c_p=Cpcurr, const=const
@@ -1201,7 +1223,7 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
                     fcondens
                     * const.epsilon
                     * (1.0 - const.epsilon)
-                    * const.mu
+                    * const.molar_mass_dry_air
                     / ((const.epsilon + (1.0 - const.epsilon) * frisenew) ** 2)
                 ) / muecurr
                 frdRpl = 0.5 * fracdelm - 0.5 * frdrho
@@ -1251,7 +1273,10 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
 
         # Calculate vertical rise and time parameters
         verticalrise = (
-            sim_params.pressure_step * Trisenew * const.R / (const.g * Pnew * const.mu)
+            sim_params.pressure_step
+            * Trisenew
+            * const.universal_gas_constant
+            / (const.gravity * Pnew * const.molar_mass_dry_air)
         )
         timefly = verticalrise / wnew
         stepsfly = int(np.ceil(timefly / sim_params.dt))
@@ -1269,9 +1294,9 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
         else:
             # Common calculations
             base_density_factor = (
-                (Pnew * const.mu)
+                (Pnew * const.molar_mass_dry_air)
                 / (
-                    const.R
+                    const.universal_gas_constant
                     * Trisenew
                     * 1000.0
                     * ((4.0 / 3.0) * np.pi * 0.00001189207**3)
@@ -1570,11 +1595,18 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
             n0snew, slopesnew, binbounds, upboss, velpart, Qcoefff=Qcoeff, radju=radju
         )
         qara = electric_field_change(
-            n0snew, slopesnew, binbounds, upboss, velpart, kara, Efield=0.0, const=const
+            n0snew,
+            slopesnew,
+            binbounds,
+            upboss,
+            velpart,
+            kara,
+            electric_field_strength=0.0,
+            const=const,
         )
 
         # Store current value
-        J1ss[ib] = const.eps0 * qara
+        J1ss[ib] = const.vacuum_perm * qara
 
         # Calculate critical time with vectorized max
         Emax = 3.0 * P
@@ -1585,12 +1617,15 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
         PPV = 5.0 * Pressures[:: sim_params.flash_rate_sampling] * J1ss * tcrits / 2.0
 
         # Calculate verticalrise array in one operation
-        verticalrise = (100.0 * Tempsrise * const.R / (const.g * Pressures * const.mu))[
-            :: sim_params.flash_rate_sampling
-        ]
+        verticalrise = (
+            100.0
+            * Tempsrise
+            * const.universal_gas_constant
+            / (const.gravity * Pressures * const.molar_mass_dry_air)
+        )[:: sim_params.flash_rate_sampling]
 
         # Calculate flash rate in one operation
-        flash_rate = np.abs((10**6) * verticalrise * PPV / const.Eflash)
+        flash_rate = np.abs((10**6) * verticalrise * PPV / const.energy_per_flash)
 
     return {
         "pressure": Pressures,
