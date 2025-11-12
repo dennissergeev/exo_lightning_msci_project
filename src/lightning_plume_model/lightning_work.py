@@ -14,7 +14,7 @@ PROJECT_NAME = "convect_plume_earth"
 
 @dataclass(frozen=True)
 class PhysicalConstants:
-    """Physical constants used in lightning plume model calculations."""
+    """Physical constants used in lightning plume model calculations!!"""
 
     gravity: float = 9.81  # Gravitational acceleration [m/s2]
     universal_gas_constant: float = 8.31446  # Universal gas constant [J/mol/K]
