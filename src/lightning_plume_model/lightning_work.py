@@ -1105,7 +1105,7 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
     )
     rhrro = const.rhoro ** (1.0 / 3.0)
     vrQQ = np.sqrt(
-        (8.0 / (3.0 * const.drag_coef))
+        (8.0 / (3.0 * drag_coefficient(1, 1)))
         * const.rho_water
         * const.gravity
         * const.universal_gas_constant
@@ -1739,6 +1739,37 @@ def plot_comparison(
     fig.savefig(Path(output_dir) / filename, dpi=150, bbox_inches="tight")
     print(f"  Saved: {filename}")
     plt.close()
+
+
+def drag_coefficient(Re, fsa):
+    """
+    Calculate the drag coefficient of a raindrop.
+
+    This function computes the drag coefficient based on the Reynolds number and a correction term for deviations from spherical shapes (Cshape).
+
+    Parameters
+    ----------
+    Re : float
+        Value of Reynolds number (dimensionless quantity to decribe fluid flow).
+    fsa : float
+        Ratio of surface area of oblate spheroid raindrop to surface area of sphere.
+    Cshape: float
+        Correction term for deviations from spherical shape
+
+    Returns
+    -------
+    float
+        Drag coefficient
+
+    Notes
+    -----
+    Equations taken from 
+    Loftus, K., & Wordsworth, R. D. (2021). The physics of falling raindrops in diverse planetary atmospheres. Journal of Geophysical Research: Planets, 126, e2020JE006653. https://doi.org/10.1029/2020JE006653
+
+    """
+    Cshape = 1 + 1.5*(fsa-1)**0.5 + 6.7*(fsa-1)
+    ans = (24/Re*(1+0.15*Re**0.687) + 0.42*(1 + 4.25*10**4*Re**-1.16)**-1)*Cshape
+    return ans
 
 
 def main():
