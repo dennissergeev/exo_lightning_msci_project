@@ -9,12 +9,12 @@ from typing import Tuple, Union
 import matplotlib.pyplot as plt
 import numpy as np
 
-PROJECT_NAME = "convective_plume_earth"
+PROJECT_NAME = "convect_plume_earth"
 
 
 @dataclass(frozen=True)
 class PhysicalConstants:
-    """Physical constants used in lightning plume model calculations."""
+    """Physical constants used in lightning plume model calculations!!"""
 
     gravity: float = 9.81  # Gravitational acceleration [m/s2]
     universal_gas_constant: float = 8.31446  # Universal gas constant [J/mol/K]
@@ -1747,7 +1747,7 @@ def main():
 
     const = PhysicalConstants()  # centralized constants instance
 
-    base_temps = [280.0, 290.0, 300.0, 310.0]
+    base_temps = [285.0, 255.0, 210.0, 180.0]
 
     sim_params_container = {}
     for base_temp in base_temps:
