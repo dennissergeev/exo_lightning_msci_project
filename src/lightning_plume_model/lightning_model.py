@@ -4,8 +4,12 @@
 import time
 from typing import Tuple
 
+import iris
 import numpy as np
+import paths
 from constants import PhysicalConstants, SimulationParameters
+from iris.coords import DimCoord
+from iris.cube import Cube, CubeList
 
 # Initialize physical constants
 CONST = PhysicalConstants()
@@ -353,6 +357,40 @@ def calculate_rpl(
 
     rpl = np.where(cond1, binbounds[:-1], np.where(cond2, binbounds[1:], other_values))
     return rpl
+
+
+def drag_coefficient(Re, fsa):
+    """
+    Calculate the drag coefficient of a raindrop.
+
+    This function computes the drag coefficient based on the Reynolds number and a correction term for deviations from spherical shapes (Cshape).
+
+    Parameters
+    ----------
+    Re : float
+        Value of Reynolds number (dimensionless quantity to decribe fluid flow).
+    fsa : float
+        Ratio of surface area of oblate spheroid raindrop to surface area of sphere.
+    Cshape: float
+        Correction term for deviations from spherical shape
+
+    Returns
+    -------
+    float
+        Drag coefficient
+
+    Notes
+    -----
+    Equations taken from
+    Loftus, K., & Wordsworth, R. D. (2021). The physics of falling raindrops in diverse planetary atmospheres.
+    Journal of Geophysical Research: Planets, 126, e2020JE006653. https://doi.org/10.1029/2020JE006653
+
+    """
+    Cshape = 1 + 1.5 * (fsa - 1) ** 0.5 + 6.7 * (fsa - 1)
+    ans = (
+        24 / Re * (1 + 0.15 * Re**0.687) + 0.42 * (1 + 4.25 * 10**4 * Re**-1.16) ** -1
+    ) * Cshape
+    return ans
 
 
 def stepgrow(
@@ -1563,109 +1601,110 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
         Emax = 3.0 * P
         tcrits[ib] = np.sqrt(2.0 * Emax / np.abs(qara)) if qara != 0 else 0.0
 
-        # Vectorized flash rate calculations
-        # Calculate PPV in one operation
-        PPV = 5.0 * Pressures[:: sim_params.flash_rate_sampling] * J1ss * tcrits / 2.0
+    # Vectorized flash rate calculations
+    # Calculate PPV in one operation
+    PPV = 5.0 * Pressures[:: sim_params.flash_rate_sampling] * J1ss * tcrits / 2.0
 
-        # Calculate verticalrise array in one operation
-        verticalrise = (
-            100.0
-            * Tempsrise
-            * const.universal_gas_constant
-            / (const.gravity * Pressures * const.molar_mass_dry_air)
-        )[:: sim_params.flash_rate_sampling]
+    # Calculate verticalrise array in one operation
+    verticalrise = (
+        100.0
+        * Tempsrise
+        * const.universal_gas_constant
+        / (const.gravity * Pressures * const.molar_mass_dry_air)
+    )[:: sim_params.flash_rate_sampling]
 
-        # Calculate flash rate in one operation
-        flash_rate = np.abs((10**6) * verticalrise * PPV / const.energy_per_flash)
+    # Calculate flash rate in one operation
+    fl_rate = np.abs((10**6) * verticalrise * PPV / const.energy_per_flash)
 
-    return {
-        "pressure": Pressures,
-        "velocity": Velocities,
-        "plume_temp": Tempsrise,
-        "env_temp": Tempsfall,
-        "flash_rate": flash_rate,
-        "plume_radius": Radii,
-        "fs_rise": fsrise,
-        "ls_rise": lsrise,
-    }
+    # Pack the results
+    # pres_idx = pd.Index(Pressures, name="pressure [Pa]")
+    # velocity = pd.Series(Velocities, index=pres_idx, name="velocity [m s-1]")
+    # plume_temp = pd.Series(Tempsrise, index=pres_idx, name="plume_temp [K]")
+    # env_temp = pd.Series(Tempsfall, index=pres_idx, name="env_temp [K]")
+    # plume_radius = pd.Series(Radii, index=pres_idx, name="plume_radius [m]")
+    # fs_rise = pd.Series(fsrise, index=pres_idx, name="fs_rise [kg kg-1]")
+    # ls_rise = pd.Series(lsrise, index=pres_idx, name="ls_rise [kg kg-1]")
 
+    # flash_rate = pd.Series(fl_rate, index=pres_idx[:: sim_params.flash_rate_sampling], name="flash_rate [s-1 km-2]").reindex(pres_idx)
 
-def drag_coefficient(Re, fsa):
-    """
-    Calculate the drag coefficient of a raindrop.
+    # return pd.DataFrame([velocity, plume_temp, env_temp, plume_radius, fs_rise, ls_rise, flash_rate]).T
+    p_coord = DimCoord(
+        Pressures, var_name="pressure", standard_name="air_pressure", units="Pa"
+    )
+    p_coord_lfr = DimCoord(
+        Pressures[:: sim_params.flash_rate_sampling],
+        var_name="pressure_lfr",
+        standard_name="air_pressure",
+        units="Pa",
+    )
+    velocity = Cube(
+        Velocities,
+        dim_coords_and_dims=[(p_coord, 0)],
+        var_name="velocity",
+        units="m s-1",
+    )
+    plume_temp = Cube(
+        Tempsrise,
+        dim_coords_and_dims=[(p_coord, 0)],
+        var_name="plume_temp",
+        units="K",
+    )
+    env_temp = Cube(
+        Tempsfall, dim_coords_and_dims=[(p_coord, 0)], var_name="env_temp", units="K"
+    )
+    plume_radius = Cube(
+        Radii, dim_coords_and_dims=[(p_coord, 0)], var_name="plume_radius", units="m"
+    )
+    fs_rise = Cube(
+        fsrise,
+        dim_coords_and_dims=[(p_coord, 0)],
+        var_name="fs_rise",
+        units="kg kg-1",
+    )
+    ls_rise = Cube(
+        lsrise,
+        dim_coords_and_dims=[(p_coord, 0)],
+        var_name="ls_rise",
+        units="kg kg-1",
+    )
 
-    This function computes the drag coefficient based on the Reynolds number and a correction term for deviations from spherical shapes (Cshape).
+    flash_rate = Cube(
+        fl_rate,
+        dim_coords_and_dims=[(p_coord_lfr, 0)],
+        var_name="flash_rate",
+        units="s-1 km-2",
+    )
 
-    Parameters
-    ----------
-    Re : float
-        Value of Reynolds number (dimensionless quantity to decribe fluid flow).
-    fsa : float
-        Ratio of surface area of oblate spheroid raindrop to surface area of sphere.
-    Cshape: float
-        Correction term for deviations from spherical shape
-
-    Returns
-    -------
-    float
-        Drag coefficient
-
-    Notes
-    -----
-    Equations taken from
-    Loftus, K., & Wordsworth, R. D. (2021). The physics of falling raindrops in diverse planetary atmospheres.
-    Journal of Geophysical Research: Planets, 126, e2020JE006653. https://doi.org/10.1029/2020JE006653
-
-    """
-    Cshape = 1 + 1.5 * (fsa - 1) ** 0.5 + 6.7 * (fsa - 1)
-    ans = (
-        24 / Re * (1 + 0.15 * Re**0.687) + 0.42 * (1 + 4.25 * 10**4 * Re**-1.16) ** -1
-    ) * Cshape
-    return ans
+    return CubeList(
+        [velocity, plume_temp, env_temp, plume_radius, fs_rise, ls_rise, flash_rate]
+    )
 
 
 def main():
     """Main simulation runner."""
     start_time = time.time()
 
-    const = PhysicalConstants()  # centralized constants instance
+    const = PhysicalConstants()
 
-    base_temps = [280.0, 290.0, 300.0, 310.0]
+    sim_params = SimulationParameters(
+        plume_base_temp=310.0,
+        base_humidity_fraction=0.9,
+        plume_base_radius=1000.0,
+        temp_supercool=20.0,
+        water_collision_efficiency=0.8,
+        ice_collision_efficiency=0.0,
+        pressure_step=10,
+        flash_rate_sampling=10,
+    )
+    run_label = (
+        f"{sim_params.plume_base_temp:.0f}__{sim_params.temp_supercool:.0f}__"
+        f"{sim_params.water_collision_efficiency:.1f}__{sim_params.ice_collision_efficiency:.1f}"
+    ).replace(".", "p")
 
-    sim_params_container = {}
-    for base_temp in base_temps:
-        sim_params = SimulationParameters(
-            # n_bins=15,
-            # max_radius=1.28000000e-03,
-            plume_base_temp=base_temp,
-            base_humidity_fraction=0.9,
-            plume_base_radius=1000.0,
-            temp_supercool=20.0,
-            water_collision_efficiency=0.8,
-            ice_collision_efficiency=0.0,
-            pressure_step=10,
-            flash_rate_sampling=10,
-        )
-        run_label = (
-            f"{sim_params.plume_base_temp:.0f}__{sim_params.temp_supercool:.0f}__"
-            f"{sim_params.water_collision_efficiency:.1f}__{sim_params.ice_collision_efficiency:.1f}"
-        ).replace(".", "p")
-        sim_params_container[run_label] = sim_params
+    print(f"Running simulation: {run_label}")
 
-    results = {}
-    for run_label, sim_params in sim_params_container.items():
-        print(f"Running simulation: {run_label}")
-
-        results[run_label] = run_sim(sim_params, const)
-        with open(
-            f"/home/jg22146/.conda/envs/new_lightning_project/{run_label}.txt", "w"
-        ) as file:
-            file.write(str(results[run_label]))
-
-        print(
-            f"Total flash rate = "
-            f"{float(np.sum(results[run_label]['flash_rate'])) * 1.5e3:.2f} W m-2"
-        )
+    result = run_sim(sim_params, const)
+    iris.save(result, paths.data / f"lightning_sim_{run_label}.nc")
 
     elapsed_time = time.time() - start_time
     print(f"Calculation time: {elapsed_time:.2f} seconds")

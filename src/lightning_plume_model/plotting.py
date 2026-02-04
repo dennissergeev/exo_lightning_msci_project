@@ -1,22 +1,17 @@
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Union
 
+import iris
 import matplotlib.pyplot as plt
-import numpy as np
-from constants import PROJECT_NAME, PhysicalConstants, SimulationParameters
-
-from lightning_plume_model.lightning_model import results, sim_params_container
+import paths
+from constants import PROJECT_NAME, PhysicalConstants
+from iris.cube import CubeList
 
 CONST = PhysicalConstants()
 
 
-def plot_comparison(
-    results: dict,
-    sim_params_container: dict[SimulationParameters],
-    output_dir: Union[str, Path],
-):
+def plot_comparison(results: dict[CubeList], output_dir: Union[str, Path]):
     """Create comparison plots for a series of simulations."""
 
     @dataclass
@@ -63,24 +58,17 @@ def plot_comparison(
     for name, config in plot_configs.items():
         ax = axes[name]
 
-        for run_label, data in results.items():
-            # Convert pressure to bar
-            if name == "flash_rate":  # Flash rate uses fewer points
-                y = (
-                    data["pressure"][
-                        :: sim_params_container[run_label].flash_rate_sampling
-                    ]
-                    * CONST.pa_to_bar
+        for run_label, cube_list in results.items():
+            if name == "temp_diff":
+                # Plume temp - Env temp
+                x = cube_list.extract_cube("plume_temp") - cube_list.extract_cube(
+                    "env_temp"
                 )
             else:
-                y = data["pressure"] * CONST.pa_to_bar
+                x = cube_list.extract_cube(name)
+            y = x.coord("air_pressure").points * CONST.pa_to_bar
 
-            if name == "temp_diff":
-                x = data["plume_temp"] - data["env_temp"]  # Plume temp - Env temp
-            else:
-                x = data[name]
-
-            line = ax.plot(x, y, label=run_label, linewidth=1.5)
+            line = ax.plot(x.data, y, label=run_label, linewidth=1.5)
 
             # Capture handles and labels from the first subplot
             if handles is None:
@@ -90,7 +78,7 @@ def plot_comparison(
                 labels.append(run_label)
 
         ax.set_ylabel("Pressure [bar]")
-        ax.set_ylim(sim_params_container[run_label].start_pressure * CONST.pa_to_bar, 0)
+        ax.set_ylim(1e5 * CONST.pa_to_bar, 0)
         ax.set_xlabel(f"{config.ylabel} [{config.units}]")
         ax.set_title(config.title)
         ax.grid(True, alpha=0.3)
@@ -113,33 +101,20 @@ def plot_comparison(
         y=1.075,
     )
 
-    filename = f"{PROJECT_NAME}.png"
+    filename = f"{PROJECT_NAME}_new.png"
     fig.savefig(Path(output_dir) / filename, dpi=150, bbox_inches="tight")
     print(f"  Saved: {filename}")
     plt.close()
 
 
-file_name = "280__20__0p8__0p0.txt"
+results = {}
+results["310__20__0p8__0p0"] = iris.load(
+    paths.data / "lightning_sim_310__20__0p8__0p0.nc"
+)
 
-
-script_dir = os.path.dirname(os.path.abspath(__file__))
-file_path = os.path.join(script_dir, file_name)
-
-
-with open(file_path) as file:
-    data = file.read()
-
-arrays = eval(data, {"array": np.array})
-
-pressure = arrays["pressure"]
-print(pressure)
-
-
-flash_rate = arrays["flash_rate"]
-print(flash_rate)
 
 print("Generating plots...")
 outdir = Path(__file__).parent / "output"
 outdir.mkdir(exist_ok=True, parents=True)
-plot_comparison(results, sim_params_container, outdir)
+plot_comparison(results, outdir)
 print("Done.")

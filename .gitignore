@@ -1,4 +1,6 @@
 # Project-specific ignores
+a.ipynb
+src/data
 src/aglyamov_2020_model
 *.png
 *.txt
@@ -65,6 +67,7 @@ target/
 
 # IDEs / editors
 .idea/
+.ipynb_checkpoints/
 .vscode/
 *.swp
 *.swo
