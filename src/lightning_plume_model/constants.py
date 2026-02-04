@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 """Earth 1-D Lightning Simulation."""
 
-import time
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Tuple, Union
 
-import matplotlib.pyplot as plt
-import numpy as np
-import scipy
+from dataclasses import dataclass
+
 
 PROJECT_NAME = "convective_plume_earth"
 

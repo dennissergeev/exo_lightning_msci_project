@@ -6,13 +6,9 @@ from constants import SimulationParameters
 from constants import PhysicalConstants
 
 import time
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Tuple, Union
+from typing import Tuple
 
-import matplotlib.pyplot as plt
 import numpy as np
-import scipy
 
 # from plotting.py import plot_comparison
 
