@@ -15,8 +15,6 @@ import numpy as np
 # Initialize physical constants
 CONST = PhysicalConstants()
 
-PROJECT_NAME = "convective_plume_earth"
-
 
 def saturation_vapour_pressure(temp: float) -> float:
     """
