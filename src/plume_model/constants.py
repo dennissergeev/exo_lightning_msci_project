@@ -4,9 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Union
 
+import paths
 import yaml
-
-SCRIPT = Path(__file__)
 
 
 @dataclass(frozen=True)
@@ -33,7 +32,7 @@ class PhysicalConstants:
 
     @classmethod
     def from_yaml(
-        cls, yaml_path: Union[str, Path] = SCRIPT.parent / "physical_constants.yaml"
+        cls, yaml_path: Union[str, Path] = paths.config / "physical_constants.yaml"
     ):
         """Load physical constants from a YAML file."""
         with open(yaml_path) as f:
@@ -64,7 +63,7 @@ class SimulationParameters:
 
     @classmethod
     def from_yaml(
-        cls, yaml_path: Union[str, Path] = SCRIPT.parent / "simulation_parameters.yaml"
+        cls, yaml_path: Union[str, Path] = paths.config / "simulation_parameters.yaml"
     ):
         """Load simulation parameters from a YAML file."""
         with open(yaml_path) as f:

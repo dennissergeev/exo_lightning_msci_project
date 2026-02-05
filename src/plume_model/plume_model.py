@@ -40,7 +40,7 @@ def saturation_vapour_pressure(temp: float) -> float:
 
     The polynomial coefficients are:
 
-    The result is converted from mb to Pa (×100) and cannot be negative.
+    The result is converted from mb to Pa (x100) and cannot be negative.
     """
     a0 = 6984.505294
     a1 = -188.9039310
@@ -1616,17 +1616,6 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants) -> dict:
     fl_rate = np.abs((10**6) * verticalrise * PPV / const.energy_per_flash)
 
     # Pack the results
-    # pres_idx = pd.Index(Pressures, name="pressure [Pa]")
-    # velocity = pd.Series(Velocities, index=pres_idx, name="velocity [m s-1]")
-    # plume_temp = pd.Series(Tempsrise, index=pres_idx, name="plume_temp [K]")
-    # env_temp = pd.Series(Tempsfall, index=pres_idx, name="env_temp [K]")
-    # plume_radius = pd.Series(Radii, index=pres_idx, name="plume_radius [m]")
-    # fs_rise = pd.Series(fsrise, index=pres_idx, name="fs_rise [kg kg-1]")
-    # ls_rise = pd.Series(lsrise, index=pres_idx, name="ls_rise [kg kg-1]")
-
-    # flash_rate = pd.Series(fl_rate, index=pres_idx[:: sim_params.flash_rate_sampling], name="flash_rate [s-1 km-2]").reindex(pres_idx)
-
-    # return pd.DataFrame([velocity, plume_temp, env_temp, plume_radius, fs_rise, ls_rise, flash_rate]).T
     p_coord = DimCoord(
         Pressures, var_name="pressure", standard_name="air_pressure", units="Pa"
     )
@@ -1695,7 +1684,7 @@ def main():
     print(f"Running simulation: {run_label}")
 
     result = run_sim(sim_params, const)
-    iris.save(result, paths.data / f"lightning_sim_{run_label}.nc")
+    iris.save(result, paths.plume_model_output / f"lightning_sim_{run_label}.nc")
 
     elapsed_time = time.time() - start_time
     print(f"Calculation time: {elapsed_time:.2f} seconds")

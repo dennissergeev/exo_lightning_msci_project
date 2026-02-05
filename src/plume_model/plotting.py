@@ -5,13 +5,16 @@ from typing import Union
 import iris
 import matplotlib.pyplot as plt
 import paths
-from constants import PROJECT_NAME, PhysicalConstants
+from constants import PhysicalConstants, SimulationParameters
 from iris.cube import CubeList
 
-CONST = PhysicalConstants()
 
-
-def plot_comparison(results: dict[CubeList], output_dir: Union[str, Path]):
+def plot_comparison(
+    results: dict[CubeList],
+    output_dir: Union[str, Path],
+    sim_params: SimulationParameters,
+    const: PhysicalConstants,
+):
     """Create comparison plots for a series of simulations."""
 
     @dataclass
@@ -66,7 +69,7 @@ def plot_comparison(results: dict[CubeList], output_dir: Union[str, Path]):
                 )
             else:
                 x = cube_list.extract_cube(name)
-            y = x.coord("air_pressure").points * CONST.pa_to_bar
+            y = x.coord("air_pressure").points * const.pa_to_bar
 
             line = ax.plot(x.data, y, label=run_label, linewidth=1.5)
 
@@ -78,7 +81,7 @@ def plot_comparison(results: dict[CubeList], output_dir: Union[str, Path]):
                 labels.append(run_label)
 
         ax.set_ylabel("Pressure [bar]")
-        ax.set_ylim(1e5 * CONST.pa_to_bar, 0)
+        ax.set_ylim(1e5 * const.pa_to_bar, 0)
         ax.set_xlabel(f"{config.ylabel} [{config.units}]")
         ax.set_title(config.title)
         ax.grid(True, alpha=0.3)
@@ -101,20 +104,21 @@ def plot_comparison(results: dict[CubeList], output_dir: Union[str, Path]):
         y=1.075,
     )
 
-    filename = f"{PROJECT_NAME}_new.png"
+    filename = f"{sim_params.project_name}_new.png"
     fig.savefig(Path(output_dir) / filename, dpi=150, bbox_inches="tight")
     print(f"  Saved: {filename}")
     plt.close()
 
 
+const = PhysicalConstants.from_yaml()
+sim_params = SimulationParameters.from_yaml()
+
 results = {}
-results["310__20__0p8__0p0"] = iris.load(
-    paths.data / "lightning_sim_310__20__0p8__0p0.nc"
+results["280__20__0p8__0p0"] = iris.load(
+    paths.plume_model_output / "lightning_sim_280__20__0p8__0p0.nc"
 )
 
 
 print("Generating plots...")
-outdir = Path(__file__).parent / "output"
-outdir.mkdir(exist_ok=True, parents=True)
-plot_comparison(results, outdir)
+plot_comparison(results, paths.figures, sim_params, const)
 print("Done.")
