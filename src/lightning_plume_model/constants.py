@@ -1,35 +1,44 @@
 """Constants and configurable parameters for the lightning plume model."""
 
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Union
 
-PROJECT_NAME = "convective_plume_earth"
+import yaml
+
+SCRIPT = Path(__file__)
 
 
 @dataclass(frozen=True)
 class PhysicalConstants:
     """Physical constants used in lightning plume model calculations."""
 
-    gravity: float = 9.81  # Gravitational acceleration [m/s2]
-    universal_gas_constant: float = 8.31446  # Universal gas constant [J/mol/K]
-    molar_mass_dry_air: float = 0.02896  # Molar mass of dry air [kg/mol]
-    epsilon: float = 0.6222  # Ratio of molecular weights [dimensionless]
-    c_p: float = 14500.0  # Specific heat capacity at constant pressure [J/kg/K]
-    latent_heat_v: float = 2257000.0  # Latent heat of vaporization of water [J/kg]
-    vacuum_perm: float = 8.854e-12  # Vacuum permittivity [F/m]
-    e_charge: float = 1.602e-19  # Elementary charge [C]
-    rho_water: float = 1000.0  # Density of liquid water [kg/m3]
-    rhoro: float = 2.5  # Ratio of ice to liquid water density [dimensionless]
-    drag_coef: float = 0.5  # Drag coefficient [dimensionless]
-    energy_per_flash: float = 1.5e9  # Energy per lightning flash [J]
-    mean_free_path_ion_coll: float = (
-        4.0e-11  # Mean free path time for ion collisions [s]
-    )
-    temp_freeze: float = 273.15  # Freezing point of water [K]
-    pa_to_bar: float = 1e-5  # Conversion factor from Pascal to bar
-    surface_ten: float = (
-        0.00072  # Surface tension between liquid condensible and air [N/m]
-    )
-    rho_air: float = 1.293  # Density of liquid condensible [kg/m3]
+    gravity: float
+    universal_gas_constant: float
+    molar_mass_dry_air: float
+    epsilon: float
+    c_p: float
+    latent_heat_v: float
+    vacuum_perm: float
+    e_charge: float
+    rho_water: float
+    rhoro: float
+    drag_coef: float
+    energy_per_flash: float
+    mean_free_path_ion_coll: float
+    temp_freeze: float
+    pa_to_bar: float
+    surface_ten: float
+    rho_air: float
+
+    @classmethod
+    def from_yaml(
+        cls, yaml_path: Union[str, Path] = SCRIPT.parent / "physical_constants.yaml"
+    ):
+        """Load physical constants from a YAML file."""
+        with open(yaml_path) as f:
+            data = yaml.safe_load(f)
+        return cls(**{k: v["value"] for k, v in data["physical_constants"].items()})
 
 
 @dataclass(frozen=True)
@@ -42,12 +51,25 @@ class SimulationParameters:
     temp_supercool: float
     water_collision_efficiency: float
     ice_collision_efficiency: float
-    start_pressure: float = 100_000.0
-    start_upward_velocity: float = 0.001
-    pressure_step: float = 10.0
-    growth_time_step: float = 0.01
-    n_bins: int = 31
-    min_radius: float = 1e-5
-    max_radius: float = 0.46340950011842
-    flash_rate_sampling: int = 10
-    dt = 0.01
+    start_pressure: float
+    start_upward_velocity: float
+    pressure_step: float
+    growth_time_step: float
+    n_bins: int
+    min_radius: float
+    max_radius: float
+    flash_rate_sampling: int
+    dt: float
+    project_name: str = "default_project"
+
+    @classmethod
+    def from_yaml(
+        cls, yaml_path: Union[str, Path] = SCRIPT.parent / "simulation_parameters.yaml"
+    ):
+        """Load simulation parameters from a YAML file."""
+        with open(yaml_path) as f:
+            data = yaml.safe_load(f)
+        return cls(
+            **{k: v["value"] for k, v in data["simulation_parameters"].items()},
+            project_name=data["project"]["name"],
+        )

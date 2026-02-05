@@ -11,8 +11,7 @@ from constants import PhysicalConstants, SimulationParameters
 from iris.coords import DimCoord
 from iris.cube import Cube, CubeList
 
-# Initialize physical constants
-CONST = PhysicalConstants()
+iris.FUTURE.save_split_attrs = True
 
 
 def saturation_vapour_pressure(temp: float) -> float:
@@ -74,8 +73,8 @@ def dry_adiabat(
     P: float,
     T: float,
     f: float,
-    c_p: float = CONST.c_p,
-    const: PhysicalConstants = CONST,
+    c_p: float,
+    const: PhysicalConstants,
 ) -> float:
     r"""
     Calculate the dry adiabatic temperature gradient.
@@ -106,8 +105,8 @@ def dry_adiabat(
         Mixing ratio [kg/kg]
     c_p : float, optional
         Specific heat capacity at constant pressure [J/kg/K]
-    const : PhysicalConstants, optional
-        Container with physical constants, defaults to CONST
+    const : PhysicalConstants
+        Container with physical constants
 
     Returns
     -------
@@ -125,8 +124,8 @@ def dry_adiabat(
 def entrainment(
     T: float,
     P: float,
-    plume_radius: float = 5000.0,
-    const: PhysicalConstants = CONST,
+    plume_radius: float,
+    const: PhysicalConstants,
 ) -> float:
     r"""
     Calculate the entrainment parameter phi.
@@ -148,10 +147,10 @@ def entrainment(
         Temperature [K]
     P : float
         Pressure [Pa]
-    plume_radius : float, optional
-        Radius of updraft [m], defaults to 5000.0
-    const : PhysicalConstants, optional
-        Container with physical constants, defaults to CONST
+    plume_radius : float
+        Radius of updraft [m]
+    const : PhysicalConstants
+        Container with physical constants
 
     Returns
     -------
@@ -175,8 +174,8 @@ def moist_adiabat(
     ffall: float,
     satvappre: float,
     entrain_param: float,
-    c_p: float = CONST.c_p,
-    const: PhysicalConstants = CONST,
+    c_p: float,
+    const: PhysicalConstants,
 ) -> float:
     r"""
     Calculate the moist adiabatic temperature gradient.
@@ -217,10 +216,10 @@ def moist_adiabat(
         Saturation vapor pressure [Pa]
     entrain_param : float
         Entrainment parameter [1/Pa]
-    c_p : float, optional
+    c_p : float
         Specific heat capacity at constant pressure [J/kg/K]
-    const : PhysicalConstants, optional
-        Container with physical constants, defaults to CONST
+    const : PhysicalConstants
+        Container with physical constants
 
     Returns
     -------
@@ -258,7 +257,7 @@ def upward_wind_gradient(
     ffall: float,
     w: float,
     entrain_param: float,
-    const: PhysicalConstants = CONST,
+    const: PhysicalConstants,
 ) -> float:
     r"""
     Calculate the vertical velocity gradient in a convective plume.
@@ -289,7 +288,7 @@ def upward_wind_gradient(
     entrain_param : float,
         Entrainment parameter [1/Pa]
     const : PhysicalConstants, optional
-        Container with physical constants, defaults to CONST
+        Container with physical constants
 
     Returns
     -------
@@ -855,7 +854,7 @@ def electric_field_change(
     ionvelocities=None,
     ionmasses=None,
     electric_field_strength=0.0,
-    const=CONST,
+    const=None,
 ):
     """
     Calculate the rate of change of the electric field.
@@ -888,7 +887,7 @@ def electric_field_change(
     electric_field_strength : float, optional
         External electric field strength, defaults to 0.0.
     const : PhysicalConstants, optional
-        Container with physical constants, defaults to CONST
+        Container with physical constants
 
     Returns
     -------
@@ -946,7 +945,7 @@ def electric_field_change(
     return -(Jc + Jd) / const.vacuum_perm
 
 
-def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) -> dict:
+def run_sim(sim_params: SimulationParameters, const: PhysicalConstants) -> dict:
     """
     Run a complete lightning plume simulation for a convective updraft.
 
@@ -996,8 +995,8 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants = CONST) 
             Maximum particle radius [m], default 0.46340950011842
         - flash_rate_sampling : int, optional
             Sampling interval for flash rate calculation, default 10
-    const : PhysicalConstants, optional
-        Container with physical constants, defaults to CONST
+    const : PhysicalConstants
+        Container with physical constants
 
     Returns
     -------
@@ -1684,18 +1683,10 @@ def main():
     """Main simulation runner."""
     start_time = time.time()
 
-    const = PhysicalConstants()
+    const = PhysicalConstants.from_yaml()
 
-    sim_params = SimulationParameters(
-        plume_base_temp=310.0,
-        base_humidity_fraction=0.9,
-        plume_base_radius=1000.0,
-        temp_supercool=20.0,
-        water_collision_efficiency=0.8,
-        ice_collision_efficiency=0.0,
-        pressure_step=10,
-        flash_rate_sampling=10,
-    )
+    sim_params = SimulationParameters.from_yaml()
+
     run_label = (
         f"{sim_params.plume_base_temp:.0f}__{sim_params.temp_supercool:.0f}__"
         f"{sim_params.water_collision_efficiency:.1f}__{sim_params.ice_collision_efficiency:.1f}"
