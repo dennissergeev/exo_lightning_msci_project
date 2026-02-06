@@ -1,17 +1,11 @@
-#!/usr/bin/env python3
-"""Earth 1-D Lightning Simulation."""
+"""1-D Lightning Model for an Earth-like Atmosphere."""
 
-import time
 from typing import Tuple
 
-import iris
 import numpy as np
-import paths
 from constants import PhysicalConstants, SimulationParameters
 from iris.coords import DimCoord
 from iris.cube import Cube, CubeList
-
-iris.FUTURE.save_split_attrs = True
 
 
 def saturation_vapour_pressure(temp: float) -> float:
@@ -1042,21 +1036,6 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants) -> dict:
     The simulation uses vectorized numpy operations throughout for computational
     efficiency, particularly in the particle growth, charge transfer, and electric
     field calculations.
-
-    Examples
-    --------
-    >>> from lightning_work import SimulationParameters, PhysicalConstants, run_sim
-    >>> sim_params = SimulationParameters(
-    ...     plume_base_temp=300.0,
-    ...     base_humidity_fraction=0.8,
-    ...     plume_base_radius=1000.0,
-    ...     temp_supercool=40.0,
-    ...     water_collision_efficiency=0.5,
-    ...     ice_collision_efficiency=0.1
-    ... )
-    >>> results = run_sim(sim_params)
-    >>> print(f"Peak flash rate: {results['flash_rate'].max():.3f} flashes/s/km^2")
-    Peak flash rate: 0.234 flashes/s/km^2
     """
     anlT = 10.0 + 3.0 * (sim_params.plume_base_temp - 295.0) / 10.0
     fprea = (
@@ -1448,9 +1427,6 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants) -> dict:
     radju = 1.0
 
     for ib, i in enumerate(sample_indices):
-        if (ib % 100) == 0:
-            print(ib)
-
         n0s = n0s_per_level[i, :]
         slopes = slopes_per_level[i, :]
         P = Pressures[i]
@@ -1666,29 +1642,3 @@ def run_sim(sim_params: SimulationParameters, const: PhysicalConstants) -> dict:
     return CubeList(
         [velocity, plume_temp, env_temp, plume_radius, fs_rise, ls_rise, flash_rate]
     )
-
-
-def main():
-    """Main simulation runner."""
-    start_time = time.time()
-
-    const = PhysicalConstants.from_yaml()
-
-    sim_params = SimulationParameters.from_yaml()
-
-    run_label = (
-        f"{sim_params.plume_base_temp:.0f}__{sim_params.temp_supercool:.0f}__"
-        f"{sim_params.water_collision_efficiency:.1f}__{sim_params.ice_collision_efficiency:.1f}"
-    ).replace(".", "p")
-
-    print(f"Running simulation: {run_label}")
-
-    result = run_sim(sim_params, const)
-    iris.save(result, paths.plume_model_output / f"lightning_sim_{run_label}.nc")
-
-    elapsed_time = time.time() - start_time
-    print(f"Calculation time: {elapsed_time:.2f} seconds")
-
-
-if __name__ == "__main__":
-    main()
