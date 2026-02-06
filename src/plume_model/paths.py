@@ -20,5 +20,8 @@ model = src / "plume_model"
 # Absolute path to the `src/config` folder (contains YAML config files)
 config = model / "config"
 
+# Default config path
+config_default = model / "config" / "default"
+
 # Absolute path to the `src/figures` folder (contains figure output)
 figures = src / "figures"

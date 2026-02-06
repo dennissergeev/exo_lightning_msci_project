@@ -27,27 +27,42 @@ iris.FUTURE.save_split_attrs = True
 
 def main():
     """Main simulation runner."""
-    start_time = time.time()
 
-    # Load the constants and simulation parameters from YAML files
-    const = PhysicalConstants.from_yaml()
-    sim_params = SimulationParameters.from_yaml()
+    # run_label = (
+    #     f"{sim_params.plume_base_temp:.0f}__{sim_params.temp_supercool:.0f}__"
+    #     f"{sim_params.water_collision_efficiency:.1f}__{sim_params.ice_collision_efficiency:.1f}"
+    # ).replace(".", "p")
 
-    run_label = (
-        f"{sim_params.plume_base_temp:.0f}__{sim_params.temp_supercool:.0f}__"
-        f"{sim_params.water_collision_efficiency:.1f}__{sim_params.ice_collision_efficiency:.1f}"
-    ).replace(".", "p")
+    runs = ["default", "run01", "run02"]
 
-    print(f"Running simulation: {run_label}")
+    for run_label in runs:
+        start_time = time.time()
 
-    # Run the simulation
-    result = run_sim(sim_params, const)
+        print(f"Running simulation: {run_label}")
 
-    # Save the result to a NetCDF file
-    iris.save(result, paths.plume_model_output / f"lightning_sim_{run_label}.nc")
+        # Load the constants and simulation parameters from YAML files
+        const = PhysicalConstants.from_yaml(
+            paths.config / run_label / "physical_constants.yaml"
+        )
+        sim_params = SimulationParameters.from_yaml(
+            paths.config / run_label / "simulation_parameters.yaml"
+        )
 
-    elapsed_time = time.time() - start_time
-    print(f"Calculation time: {elapsed_time:.2f} seconds")
+        # Run the simulation
+        result = run_sim(sim_params, const)
+
+        for cube in result:
+            cube.attributes["run_label"] = run_label
+            cube.attributes.update(sim_params.to_dict())
+            cube.attributes.update(const.to_dict())
+
+        # Save the result to a NetCDF file
+        iris.save(
+            result, paths.plume_model_output / f"plume_model_output_{run_label}.nc"
+        )
+
+        elapsed_time = time.time() - start_time
+        print(f"Calculation time: {elapsed_time:.2f} seconds")
 
 
 if __name__ == "__main__":

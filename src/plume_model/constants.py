@@ -1,6 +1,6 @@
 """Constants and configurable parameters for the lightning plume model."""
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Union
 
@@ -32,12 +32,16 @@ class PhysicalConstants:
 
     @classmethod
     def from_yaml(
-        cls, yaml_path: Union[str, Path] = paths.config / "physical_constants.yaml"
+        cls,
+        yaml_path: Union[str, Path] = paths.config_default / "physical_constants.yaml",
     ):
         """Load physical constants from a YAML file."""
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
         return cls(**{k: v["value"] for k, v in data["physical_constants"].items()})
+
+    def to_dict(self):
+        return {k: str(v) for k, v in asdict(self).items()}
 
 
 @dataclass(frozen=True)
@@ -63,7 +67,9 @@ class SimulationParameters:
 
     @classmethod
     def from_yaml(
-        cls, yaml_path: Union[str, Path] = paths.config / "simulation_parameters.yaml"
+        cls,
+        yaml_path: Union[str, Path] = paths.config_default
+        / "simulation_parameters.yaml",
     ):
         """Load simulation parameters from a YAML file."""
         with open(yaml_path) as f:
@@ -72,3 +78,6 @@ class SimulationParameters:
             **{k: v["value"] for k, v in data["simulation_parameters"].items()},
             project_name=data["project"]["name"],
         )
+
+    def to_dict(self):
+        return {k: str(v) for k, v in asdict(self).items()}
