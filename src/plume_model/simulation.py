@@ -57,6 +57,7 @@ def main():
             cube.attributes.update(const.to_dict())
 
         # Save the result to a NetCDF file
+        paths.plume_model_output.mkdir(parents=True, exist_ok=True)
         iris.save(
             result, paths.plume_model_output / f"plume_model_output_{run_label}.nc"
         )
